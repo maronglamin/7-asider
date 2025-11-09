@@ -1,0 +1,160 @@
+// Datasource: PostgreSQL
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String         @id @default(cuid())
+  email        String         @unique
+  username     String?        @unique
+  name         String?
+  passwordHash String?
+  provider     String? // 'google' | 'apple' | 'facebook' | 'email'
+  providerId   String? // external provider user id
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  sessions     Session[]
+  fieldKycs    FieldKyc[]
+  bookings     FieldBooking[]
+  reservations Booking[]
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id])
+}
+
+enum FieldKycStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+model FieldKyc {
+  id               String          @id @default(cuid())
+  userId           String
+  name             String
+  city             String?
+  address          String?
+  phone            String?
+  surfaceType      String?
+  size             String?
+  pricePerHour     Decimal?        @db.Decimal(10, 2)
+  hasLights        Boolean         @default(false)
+  description      String?
+  images           FieldKycImage[]
+  status           FieldKycStatus  @default(PENDING)
+  rejectionReason  String?
+  suspensionReason String?
+  updatedBy        String? // last updater username or identifier, no FK
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id])
+  bookings      FieldBooking[]
+  reservations  Booking[]
+  bookingUnits  BookingUnit[]
+}
+
+model FieldKycImage {
+  id         String   @id @default(cuid())
+  fieldKycId String
+  url        String
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  fieldKyc FieldKyc @relation(fields: [fieldKycId], references: [id])
+}
+
+// ============================
+// Scalable booking system (v2)
+// ============================
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum BookingType {
+  HOURLY
+  FULL_DAY
+  MULTI_DAY
+  CUSTOM
+}
+
+model Booking {
+  id            String         @id @default(cuid())
+  userId        String
+  fieldId       String
+  type          BookingType
+  startAt       DateTime       // UTC start
+  endAt         DateTime       // UTC end (exclusive)
+  timezone      String?
+  totalAmount   Decimal        @db.Decimal(10, 2)
+  currency      String         @default("GMD")
+  status        BookingStatus  @default(PENDING)
+  paymentStatus PaymentStatus  @default(UNPAID)
+  note          String?
+  metadata      Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id])
+  field         FieldKyc       @relation(fields: [fieldId], references: [id])
+  units         BookingUnit[]
+
+  @@index([userId, createdAt])
+  @@index([fieldId, startAt, endAt])
+}
+
+// Each reserved hour is represented as a unit for conflict checks and analytics.
+// Full-day and multi-day bookings expand into 24 hourly units per day.
+model BookingUnit {
+  id        String   @id @default(cuid())
+  bookingId String
+  fieldId   String
+  date      DateTime // midnight UTC for the day this hour belongs to
+  hourStart Int      // 0..23 (hour bucket)
+  createdAt DateTime @default(now())
+
+  booking   Booking  @relation(fields: [bookingId], references: [id])
+  field     FieldKyc @relation(fields: [fieldId], references: [id])
+
+  @@unique([fieldId, date, hourStart])
+  @@index([bookingId])
+  @@index([fieldId, date])
+}
+
+model FieldBooking {
+  id         String   @id @default(cuid())
+  fieldKycId String
+  userId     String
+  date       DateTime // Date-only semantics; store as UTC midnight for the day
+  startHour  Int // 0-23 inclusive
+  endHour    Int // 1-24 inclusive, strictly > startHour
+  createdAt  DateTime @default(now())
+
+  fieldKyc FieldKyc @relation(fields: [fieldKycId], references: [id])
+  user     User     @relation(fields: [userId], references: [id])
+
+  @@index([fieldKycId, date])
+}

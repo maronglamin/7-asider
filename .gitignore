@@ -1,0 +1,60 @@
+# OS
+.DS_Store
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+
+# Build outputs
+dist/
+build/
+.turbo/
+.parcel-cache/
+.cache/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# Expo / React Native
+.expo/
+.expo-shared/
+.expo-web-cache/
+.expo-dev-cache/
+
+# Android
+appFrontend/android/.gradle/
+appFrontend/android/.idea/
+appFrontend/android/local.properties
+appFrontend/android/captures/
+appFrontend/android/app/build/
+*.keystore
+*.jks
+*.aab
+*.apk
+
+# iOS
+appFrontend/ios/Pods/
+appFrontend/ios/build/
+*.ipa
+*.dSYM
+
+# Backend uploads and generated assets
+appBackend/uploads/
+
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
+
+# Logs
+logs/
+*.log
+
+
