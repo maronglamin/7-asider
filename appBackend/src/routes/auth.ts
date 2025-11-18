@@ -74,6 +74,7 @@ router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
         email: true,
         username: true,
         name: true,
+        supadmin: true,
         provider: true,
         providerId: true,
         createdAt: true,

@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   Image,
   Alert,
@@ -31,6 +32,7 @@ interface BookingScreenProps {
 
 export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const { token } = useAuth();
+  const fieldId = route?.params?.fieldId as string | undefined;
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [endDate, setEndDate] = useState<string>('');
@@ -41,11 +43,11 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [bookedHours, setBookedHours] = useState<number[]>([]);
   const [conflictMsg, setConflictMsg] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
   const [field, setField] = useState<any | null>(null);
   const [imageIndex, setImageIndex] = useState<number>(0);
 
   useEffect(() => {
-    const fieldId = route?.params?.fieldId as string | undefined;
     if (!fieldId) {
       setLoading(false);
       return;
@@ -66,6 +68,27 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       mounted = false;
     };
   }, [route?.params?.fieldId]);
+
+  const onRefresh = React.useCallback(async () => {
+    try {
+      setRefreshing(true);
+      if (!fieldId) return;
+      const data = await apiGet<any>(`/fields/kyc/public/${fieldId}?all=1`);
+      setField(data);
+      // reload availability if date already selected
+      if (selectedDate) {
+        const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
+          `/bookings/availability?fieldId=${encodeURIComponent(fieldId)}&date=${encodeURIComponent(selectedDate)}`
+        );
+        const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
+        setBookedHours(taken);
+      }
+    } catch (_e) {
+      // ignore
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fieldId, selectedDate]);
 
   // Generate next 7 days
   const generateDates = (): DateItem[] => {
@@ -283,7 +306,11 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         {/* Presets */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>

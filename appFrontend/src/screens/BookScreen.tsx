@@ -4,17 +4,20 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
+  Image,
   TextInput,
   Platform,
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Map, TrendingUp, Plus } from 'lucide-react-native';
+import { Map, TrendingUp, Plus, CheckCircle, Upload as UploadIcon } from 'lucide-react-native';
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
-import { apiGetAuth, API_BASE } from '../api/client';
+import { apiGetAuth, apiPostMultipartAuth, API_BASE } from '../api/client';
+import * as ImagePicker from 'expo-image-picker';
 
 interface BookScreenProps {
   navigation?: any;
@@ -26,8 +29,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const [showComing, setShowComing] = useState(false);
+  const [payVisible, setPayVisible] = useState(false);
+  const [payBooking, setPayBooking] = useState<any | null>(null);
+  const [receiptUri, setReceiptUri] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const load = async (reset: boolean) => {
     if (!token || loading) return;
@@ -64,7 +72,21 @@ export function BookScreen({ navigation }: BookScreenProps) {
         <Text style={styles.title}>Book a Field</Text>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} />}
+        onScroll={({ nativeEvent }) => {
+          const paddingToBottom = 200;
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const closeToBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - paddingToBottom;
+          if (closeToBottom && nextCursor && !loading && !loadingMore) {
+            setLoadingMore(true);
+            load(false).finally(() => setLoadingMore(false));
+          }
+        }}
+        scrollEventThrottle={16}
+      >
         {/* Primary Actions */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity style={styles.primaryAction} onPress={() => navigation?.navigate('FindField')}>
@@ -101,12 +123,30 @@ export function BookScreen({ navigation }: BookScreenProps) {
                 price,
               };
               return (
-                <FieldCard
-                  key={b.id}
-                  field={card}
-                  showRating={false}
-                  onSelect={() => navigation?.navigate('CustomerBookedDetails', { booking: b })}
-                />
+                <View key={b.id}>
+                  <FieldCard
+                    field={card}
+                    showRating={false}
+                    onSelect={() => navigation?.navigate('CustomerBookedDetails', { booking: b })}
+                  />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 6 }}>
+                    {String(b.paymentStatus || '').toUpperCase() === 'PAID' ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+                        <CheckCircle size={16} color="#166534" />
+                        <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
+                      </View>
+                    ) : !b?.hasReceipt ? (
+                      <TouchableOpacity
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#16a34a', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
+                        onPress={() => { setPayBooking(b); setReceiptUri(null); setPayVisible(true); }}
+                        activeOpacity={0.8}
+                      >
+                        <UploadIcon size={16} color="#ffffff" />
+                        <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                </View>
               );
             })}
             {(!loading && items.length === 0) && (
@@ -118,11 +158,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                 </TouchableOpacity>
               </View>
             )}
-            {nextCursor && !loading && (
-              <TouchableOpacity style={styles.loadMore} onPress={() => load(false)}>
-                <Text style={styles.loadMoreText}>Load more</Text>
-              </TouchableOpacity>
-            )}
+            {/* Infinite scroll handles loading more automatically */}
           </View>
         </View>
       </ScrollView>
@@ -142,6 +178,63 @@ export function BookScreen({ navigation }: BookScreenProps) {
               <Text style={styles.sheetPrimaryText}>Got it</Text>
             </TouchableOpacity>
             <SafeAreaView edges={["bottom"]} />
+          </View>
+        </View>
+      </Modal>
+      {/* Pay bottom sheet */}
+      <Modal visible={payVisible} animationType="slide" transparent>
+        <View style={styles.sheetOverlay}>
+          <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setPayVisible(false)} />
+          <View style={[styles.sheetContainer, { maxHeight: '85%' }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Upload Payment Receipt</Text>
+            <Text style={styles.sheetSubtitle}>Attach a clear image of your payment receipt. The field owner will review and confirm.</Text>
+            <View style={{ paddingHorizontal: 16, gap: 12 }}>
+              {!!receiptUri ? (
+                <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 220, borderRadius: 10, backgroundColor: '#f3f4f6' }} />
+              ) : (
+                <View style={{ width: '100%', height: 220, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ color: '#6b7280' }}>No image selected</Text>
+                </View>
+              )}
+              <TouchableOpacity
+                style={styles.sheetPrimary}
+                onPress={async () => {
+                  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                  if (perm.status !== 'granted') return;
+                  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
+                  if (!res.canceled && res.assets && res.assets[0]?.uri) {
+                    setReceiptUri(res.assets[0].uri);
+                  }
+                }}
+              >
+                <Text style={styles.sheetPrimaryText}>{receiptUri ? 'Change Image' : 'Choose Image'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sheetPrimary, { backgroundColor: '#16a34a', opacity: receiptUri && !uploading ? 1 : 0.6 }]}
+                disabled={!receiptUri || uploading}
+                onPress={async () => {
+                  if (!payBooking || !receiptUri) return;
+                  try {
+                    setUploading(true);
+                    const form = new FormData();
+                    // @ts-ignore: RN FormData file
+                    form.append('receipt', { uri: receiptUri, name: 'receipt.jpg', type: 'image/jpeg' });
+                    await apiPostMultipartAuth(`/bookings/${payBooking.id}/receipt`, form as any, token as any);
+                    setUploading(false);
+                    setPayVisible(false);
+                    // Mark the booking as having a receipt locally to hide Pay button
+                    setItems((prev) => prev.map((it) => it.id === payBooking.id ? { ...it, hasReceipt: true } : it));
+                    setReceiptUri(null);
+                  } catch (e) {
+                    setUploading(false);
+                  }
+                }}
+              >
+                <Text style={styles.sheetPrimaryText}>{uploading ? 'Uploading...' : 'Submit Receipt'}</Text>
+              </TouchableOpacity>
+              <SafeAreaView edges={["bottom"]} />
+            </View>
           </View>
         </View>
       </Modal>

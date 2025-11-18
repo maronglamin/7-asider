@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import * as SecureStore from 'expo-secure-store';
 
-type User = { id: string; email: string; name?: string } | null;
+type User = { id: string; email: string; name?: string; supadmin?: boolean } | null;
 
 type AuthContextType = {
   user: User;

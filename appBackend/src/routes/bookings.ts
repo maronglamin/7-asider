@@ -1,8 +1,27 @@
 import { Router, Request, Response } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 
 const router = Router();
+
+// Uploads: receipts
+const receiptDir = path.join(process.cwd(), 'uploads', 'receipts');
+if (!fs.existsSync(receiptDir)) {
+  fs.mkdirSync(receiptDir, { recursive: true });
+}
+const storage = multer.diskStorage({
+  destination: (_req: any, _file: any, cb: any) => cb(null, receiptDir),
+  filename: (_req: any, file: any, cb: any) => {
+    const ext = path.extname(file.originalname) || '.jpg';
+    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '');
+    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    cb(null, `${base || 'receipt'}_${unique}${ext}`);
+  },
+});
+const upload = multer({ storage });
 
 // Helpers
 function toUtcMidnight(dateStr: string): Date {
@@ -191,6 +210,7 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
             pricePerHour: true,
           },
         },
+        _count: { select: { PaymentReceipt: true } },
       },
     });
 
@@ -200,7 +220,12 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
       nextCursor = results[results.length - 1].id;
       items = results.slice(0, limit);
     }
-    res.json({ items, nextCursor });
+    // Map response to include hasReceipt and strip prisma _count helper
+    const mapped = items.map((b: any) => {
+      const { _count, ...rest } = b;
+      return { ...rest, hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0) };
+    });
+    res.json({ items: mapped, nextCursor });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch bookings' });
   }
@@ -271,6 +296,8 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
           },
         },
         user: { select: { id: true, email: true, name: true } },
+        _count: { select: { PaymentReceipt: true } },
+        PaymentReceipt: { select: { imageUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
 
@@ -280,7 +307,16 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
       nextCursor = results[results.length - 1].id;
       items = results.slice(0, limit);
     }
-    res.json({ items, nextCursor });
+    const mapped = items.map((b: any) => {
+      const latest = (b.PaymentReceipt && b.PaymentReceipt[0]) ? b.PaymentReceipt[0] : null;
+      const { _count, PaymentReceipt, ...rest } = b;
+      return {
+        ...rest,
+        hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+        latestReceiptUrl: latest?.imageUrl || null,
+      };
+    });
+    res.json({ items: mapped, nextCursor });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch owner bookings' });
   }
@@ -307,6 +343,77 @@ router.patch('/:id/status', requireAuth, async (req: AuthedRequest, res: Respons
     res.json({ ok: true, id: updated.id, status: updated.status });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update status' });
+  }
+});
+
+// PATCH /bookings/:id/payment - owner marks booking as PAID
+router.patch('/:id/payment', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const ownerId = req.auth!.userId;
+    const id = req.params.id;
+    const existing = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: { field: { select: { userId: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Booking not found' });
+    if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    const updated = await (prisma as any).booking.update({
+      where: { id },
+      data: { paymentStatus: 'PAID' },
+    });
+    res.json({ ok: true, id: updated.id, paymentStatus: updated.paymentStatus });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update payment status' });
+  }
+});
+
+// POST /bookings/:id/receipt - user uploads payment receipt (does not change paymentStatus)
+router.post('/:id/receipt', requireAuth, upload.single('receipt'), async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const booking = await (prisma as any).booking.findUnique({ where: { id } });
+    if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    const file = (req as any).file as any | undefined;
+    if (!file) return res.status(400).json({ error: 'receipt file is required' });
+    const url = `/uploads/receipts/${path.basename(file.path)}`;
+    const note = (req.body?.note as string | undefined) || null;
+    const receipt = await (prisma as any).paymentReceipt.create({
+      data: {
+        bookingId: id,
+        userId,
+        imageUrl: url,
+        note,
+      },
+    });
+    res.json({ ok: true, receipt });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/receipt]', e?.message || e);
+    res.status(500).json({ error: 'Failed to upload receipt' });
+  }
+});
+
+// GET /bookings/:id/receipts - list uploaded receipts (owner or booking user)
+router.get('/:id/receipts', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: { field: { select: { userId: true } } },
+    });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const isOwner = booking.field.userId === userId;
+    const isBooker = booking.userId === userId;
+    if (!isOwner && !isBooker) return res.status(403).json({ error: 'Not allowed' });
+    const receipts = await (prisma as any).paymentReceipt.findMany({
+      where: { bookingId: id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, imageUrl: true, note: true, createdAt: true },
+    });
+    res.json({ items: receipts });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to fetch receipts' });
   }
 });
 

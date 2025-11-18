@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ChevronLeft } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, API_BASE } from '../../api/client';
+import { apiGetAuth, apiPatchAuth, API_BASE } from '../../api/client';
 
 export default function OwnerBookingsScreen() {
   const navigation = useNavigation<any>();
@@ -15,6 +15,7 @@ export default function OwnerBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -67,6 +68,8 @@ export default function OwnerBookingsScreen() {
       return { bg: '#e5e7eb', fg: '#374151' };
     })();
 
+    const canMarkPaid = String(item.paymentStatus || '').toUpperCase() !== 'PAID';
+
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OwnerBookingDetail', { booking: item })}>
         <View style={styles.imageWrap}>
@@ -91,6 +94,37 @@ export default function OwnerBookingsScreen() {
             <Text style={styles.meta} numberOfLines={1}>To: {end.toLocaleString()}</Text>
           </View>
           <Text style={styles.customer} numberOfLines={1}>By: {item.user?.name || item.user?.email || item.userId}</Text>
+          {!!item?.hasReceipt && (
+            <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {item.latestReceiptUrl ? (
+                <Image source={{ uri: `${API_BASE}${item.latestReceiptUrl}` }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
+              ) : null}
+              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Text style={{ color: '#166534', fontWeight: '800' }}>Receipt uploaded</Text>
+                {canMarkPaid ? (
+                  <TouchableOpacity
+                    onPress={async () => {
+                      try {
+                        setUpdatingId(item.id);
+                        await apiPatchAuth(`/bookings/${item.id}/payment`, {}, token as string);
+                        setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, paymentStatus: 'PAID' } : it));
+                      } finally {
+                        setUpdatingId(null);
+                      }
+                    }}
+                    style={{ backgroundColor: '#16a34a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, opacity: updatingId === item.id ? 0.6 : 1 }}
+                    disabled={updatingId === item.id}
+                  >
+                    <Text style={{ color: '#ffffff', fontWeight: '800' }}>{updatingId === item.id ? 'Marking...' : 'Mark as Paid'}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
+                    <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </View>
       </TouchableOpacity>
     );

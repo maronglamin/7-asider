@@ -9,19 +9,21 @@ generator client {
 }
 
 model User {
-  id           String         @id @default(cuid())
-  email        String         @unique
-  username     String?        @unique
-  name         String?
-  passwordHash String?
-  provider     String? // 'google' | 'apple' | 'facebook' | 'email'
-  providerId   String? // external provider user id
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  sessions     Session[]
-  fieldKycs    FieldKyc[]
-  bookings     FieldBooking[]
-  reservations Booking[]
+  id             String           @id @default(cuid())
+  email          String           @unique
+  username       String?          @unique
+  name           String?
+  passwordHash   String?
+  provider       String? // 'google' | 'apple' | 'facebook' | 'email'
+  providerId     String? // external provider user id
+  supadmin       Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  sessions       Session[]
+  fieldKycs      FieldKyc[]
+  bookings       FieldBooking[]
+  reservations   Booking[]
+  PaymentReceipt PaymentReceipt[]
 }
 
 model Session {
@@ -60,10 +62,10 @@ model FieldKyc {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id])
-  bookings      FieldBooking[]
-  reservations  Booking[]
-  bookingUnits  BookingUnit[]
+  user         User           @relation(fields: [userId], references: [id])
+  bookings     FieldBooking[]
+  reservations Booking[]
+  bookingUnits BookingUnit[]
 }
 
 model FieldKycImage {
@@ -102,25 +104,26 @@ enum BookingType {
 }
 
 model Booking {
-  id            String         @id @default(cuid())
+  id            String        @id @default(cuid())
   userId        String
   fieldId       String
   type          BookingType
-  startAt       DateTime       // UTC start
-  endAt         DateTime       // UTC end (exclusive)
+  startAt       DateTime // UTC start
+  endAt         DateTime // UTC end (exclusive)
   timezone      String?
-  totalAmount   Decimal        @db.Decimal(10, 2)
-  currency      String         @default("GMD")
-  status        BookingStatus  @default(PENDING)
-  paymentStatus PaymentStatus  @default(UNPAID)
+  totalAmount   Decimal       @db.Decimal(10, 2)
+  currency      String        @default("GMD")
+  status        BookingStatus @default(PENDING)
+  paymentStatus PaymentStatus @default(UNPAID)
   note          String?
   metadata      Json?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  user          User           @relation(fields: [userId], references: [id])
-  field         FieldKyc       @relation(fields: [fieldId], references: [id])
-  units         BookingUnit[]
+  user           User             @relation(fields: [userId], references: [id])
+  field          FieldKyc         @relation(fields: [fieldId], references: [id])
+  units          BookingUnit[]
+  PaymentReceipt PaymentReceipt[]
 
   @@index([userId, createdAt])
   @@index([fieldId, startAt, endAt])
@@ -133,11 +136,11 @@ model BookingUnit {
   bookingId String
   fieldId   String
   date      DateTime // midnight UTC for the day this hour belongs to
-  hourStart Int      // 0..23 (hour bucket)
+  hourStart Int // 0..23 (hour bucket)
   createdAt DateTime @default(now())
 
-  booking   Booking  @relation(fields: [bookingId], references: [id])
-  field     FieldKyc @relation(fields: [fieldId], references: [id])
+  booking Booking  @relation(fields: [bookingId], references: [id])
+  field   FieldKyc @relation(fields: [fieldId], references: [id])
 
   @@unique([fieldId, date, hourStart])
   @@index([bookingId])
@@ -157,4 +160,20 @@ model FieldBooking {
   user     User     @relation(fields: [userId], references: [id])
 
   @@index([fieldKycId, date])
+}
+
+// Store user-uploaded payment receipts for bookings.
+model PaymentReceipt {
+  id        String   @id @default(cuid())
+  bookingId String
+  userId    String
+  imageUrl  String
+  note      String?
+  createdAt DateTime @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@index([bookingId, createdAt])
+  @@index([userId, createdAt])
 }

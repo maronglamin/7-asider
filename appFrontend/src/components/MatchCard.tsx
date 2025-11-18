@@ -117,9 +117,11 @@ export function MatchCard({ match, type, onPrimaryPress }: MatchCardProps) {
             <TouchableOpacity style={styles.primaryButton} onPress={onPrimaryPress}>
               <Text style={styles.primaryButtonText}>View Details</Text>
             </TouchableOpacity>
+            {/*
             <TouchableOpacity style={styles.secondaryButton}>
               <Text style={styles.secondaryButtonText}>Cancel</Text>
             </TouchableOpacity>
+            */}
           </>
         ) : (
           <TouchableOpacity style={styles.primaryButton} onPress={onPrimaryPress}>

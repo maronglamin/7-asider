@@ -17,7 +17,7 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const res = await apiPost<{ token: string; user: { id: string; email: string; name?: string } }>(
+      const res = await apiPost<{ token: string; user: { id: string; email: string; name?: string; supadmin?: boolean } }>(
         '/auth/login-email',
         { email, password },
       );

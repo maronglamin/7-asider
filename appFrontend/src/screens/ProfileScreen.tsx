@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Settings, Bell, Wallet, LogOut, Edit, PlusSquare, User } from 'lucide-react-native';
+import { Settings, Bell, Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
@@ -26,6 +26,7 @@ export function ProfileScreen() {
       icon: PlusSquare,
       onPress: () => navigation.navigate('MyFields' as never),
     },
+    ...(user?.supadmin ? [{ label: 'Super Admin', icon: ShieldCheck, onPress: () => navigation.navigate('SuperAdmin' as never) }] : []),
     ...(hasKyc ? [{ label: 'Bookings', icon: Wallet, onPress: () => navigation.navigate('OwnerBookings' as never) }] : []),
     {
       label: 'Profile Information',
@@ -70,6 +71,11 @@ export function ProfileScreen() {
             <View style={styles.avatarIcon}>
               <User size={40} color="#16a34a" />
             </View>
+            {!!user?.supadmin && (
+              <View style={styles.supBadge}>
+                <ShieldCheck size={14} color="#ffffff" />
+              </View>
+            )}
           </View>
           <View style={styles.userInfo}>
             <Text style={styles.userName}>{displayName || ' '}</Text>
@@ -136,6 +142,19 @@ const styles = StyleSheet.create({
   },
   avatarContainer: {
     position: 'relative',
+  },
+  supBadge: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#16a34a',
+    borderWidth: 3,
+    borderColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarIcon: {
     width: 80,

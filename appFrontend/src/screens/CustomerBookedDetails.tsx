@@ -1,9 +1,10 @@
-import React from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, Clock } from 'lucide-react-native';
-import { API_BASE } from '../api/client';
+import { API_BASE, apiGetAuth } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 interface Props {
   navigation?: any;
@@ -11,10 +12,15 @@ interface Props {
 }
 
 export default function CustomerBookedDetails({ navigation, route }: Props) {
+  const { token } = useAuth() as any;
   const booking = route?.params?.booking;
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
   const image = imgRel ? `${API_BASE}${imgRel}` : 'https://via.placeholder.com/800x400?text=Field';
+  const [receipts, setReceipts] = useState<any[]>([]);
+  const [loadingReceipts, setLoadingReceipts] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   const start = booking?.startAt ? new Date(booking.startAt) : null;
   const end = booking?.endAt ? new Date(booking.endAt) : null;
@@ -42,6 +48,21 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
     }
     return Object.keys(byDay).map((day) => ({ day, slots: byDay[day] || [] }));
   })();
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!token || !booking?.id) return;
+        setLoadingReceipts(true);
+        const res = await apiGetAuth<{ items: any[] }>(`/bookings/${booking.id}/receipts`, token as string);
+        setReceipts(res.items || []);
+      } catch (_) {
+        setReceipts([]);
+      } finally {
+        setLoadingReceipts(false);
+      }
+    })();
+  }, [booking?.id, token]);
 
   return (
     <View style={styles.container}>
@@ -103,6 +124,29 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* Payment Receipt (if exists) */}
+        {receipts.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Payment Receipt</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                {receipts.map((r) => (
+                  <TouchableOpacity
+                    key={r.id}
+                    activeOpacity={0.9}
+                    onPress={() => { setPreviewUri(`${API_BASE}${r.imageUrl}`); setPreviewVisible(true); }}
+                  >
+                    <Image
+                      source={{ uri: `${API_BASE}${r.imageUrl}` }}
+                      style={{ width: 140, height: 140, borderRadius: 10, backgroundColor: '#f3f4f6' }}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
+        )}
+
         <TouchableOpacity
           style={styles.primary}
           onPress={() => navigation?.navigate('Booking', { fieldId: field?.id })}
@@ -111,6 +155,21 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
         </TouchableOpacity>
       </ScrollView>
       <SafeAreaView edges={["bottom"]} />
+
+      {/* Receipt Preview Modal */}
+      <Modal visible={previewVisible} transparent animationType="fade" onRequestClose={() => setPreviewVisible(false)}>
+        <View style={styles.previewOverlay}>
+          <TouchableOpacity style={styles.previewBackdrop} activeOpacity={1} onPress={() => setPreviewVisible(false)} />
+          <View style={styles.previewContent}>
+            {!!previewUri && (
+              <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="contain" />
+            )}
+            <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewVisible(false)}>
+              <Text style={styles.previewCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -269,6 +328,40 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  previewOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.85)',
+  },
+  previewBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  previewContent: {
+    width: '90%',
+    alignItems: 'center',
+  },
+  previewImage: {
+    width: '100%',
+    height: 420,
+    borderRadius: 12,
+    backgroundColor: '#111827',
+  },
+  previewClose: {
+    marginTop: 12,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  previewCloseText: {
+    color: '#111827',
+    fontWeight: '800',
   },
 });
 

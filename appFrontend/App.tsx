@@ -19,6 +19,13 @@ import OwnerBookingsScreen from './src/screens/fieldAssetOwner/OwnerBookingsScre
 import OwnerBookingDetail from './src/screens/fieldAssetOwner/OwnerBookingDetail';
 import MyFieldsScreen from './src/screens/fieldKyc/MyFieldsScreen';
 import UserInfoScreen from './src/screens/userInfo/UserInfoScreen';
+import SuperAdminScreen from './src/screens/admin/SuperAdminScreen';
+import AdminUsersScreen from './src/screens/admin/AdminUsersScreen';
+import AssetOwnersScreen from './src/screens/admin/AssetOwnersScreen';
+import FieldDetailAdminScreen from './src/screens/admin/FieldDetailAdminScreen';
+import AdminBookingsScreen from './src/screens/admin/AdminBookingsScreen';
+import AdminBookingsListScreen from './src/screens/admin/AdminBookingsListScreen';
+import UsersScreen from './src/screens/admin/UsersScreen';
 
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
@@ -99,6 +106,13 @@ export default function App() {
           <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
           <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
           <Stack.Screen name="UserInfo" component={UserInfoScreen} />
+          <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
+          <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+          <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
+          <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
+          <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
+          <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
+          <Stack.Screen name="Users" component={UsersScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       </AuthProvider>

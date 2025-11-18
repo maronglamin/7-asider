@@ -34,7 +34,7 @@ router.post('/login-email', async (req: Request, res: Response) => {
     const token = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'email' });
     // Persist session
     await prisma.session.create({ data: { userId: user.id, token } });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, supadmin: user.supadmin } });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Login failed' });
   }

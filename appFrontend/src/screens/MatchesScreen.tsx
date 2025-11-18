@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Plus } from 'lucide-react-native';
@@ -21,7 +22,24 @@ export function MatchesScreen() {
   const { token } = useAuth();
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const navigation = useNavigation<any>();
+
+  const reload = React.useCallback(async () => {
+    if (!token) return;
+    setRefreshing(true);
+    try {
+      const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20`, token);
+      setBookings(res.items || []);
+      setNextCursor(res.nextCursor || null);
+    } catch (_e) {
+      setBookings([]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [token]);
 
   useEffect(() => {
     let mounted = true;
@@ -30,8 +48,11 @@ export function MatchesScreen() {
       setLoading(true);
       try {
         // Similar to BookScreen: fetch user's bookings
-        const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=50`, token);
-        if (mounted) setBookings(res.items || []);
+        const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20`, token);
+        if (mounted) {
+          setBookings(res.items || []);
+          setNextCursor(res.nextCursor || null);
+        }
       } catch (_e) {
         if (mounted) setBookings([]);
       } finally {
@@ -76,6 +97,7 @@ export function MatchesScreen() {
         status: status as 'confirmed' | 'pending',
         kindLabel,
         slotsLabel,
+        raw: b,
       };
       if (isPast || statusUpper === 'COMPLETED' || statusUpper === 'CANCELLED') past.push(match);
       else upcoming.push(match);
@@ -126,11 +148,38 @@ export function MatchesScreen() {
       </View>
 
       {/* Content */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
+        onScroll={({ nativeEvent }) => {
+          const paddingToBottom = 200;
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const closeToBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - paddingToBottom;
+          if (closeToBottom && nextCursor && !loading && !loadingMore) {
+            setLoadingMore(true);
+            (async () => {
+              try {
+                const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20&cursor=${encodeURIComponent(nextCursor)}`, token as any);
+                setBookings(prev => [...prev, ...(res.items || [])]);
+                setNextCursor(res.nextCursor || null);
+              } finally {
+                setLoadingMore(false);
+              }
+            })();
+          }
+        }}
+        scrollEventThrottle={16}
+      >
         {activeTab === 'upcoming' ? (
           (loading ? false : upcomingMatches.length > 0) ? (
             upcomingMatches.map((match) => (
-              <MatchCard key={match.id} match={match} type="upcoming" />
+              <MatchCard
+                key={match.id}
+                match={match}
+                type="upcoming"
+                onPrimaryPress={() => navigation.navigate('CustomerBookedDetails', { booking: match.raw })}
+              />
             ))
           ) : (
             <View style={styles.emptyState}>
