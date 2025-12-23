@@ -30,6 +30,7 @@ coverage/
 .expo-dev-cache/
 
 # Android
+/.gradle/
 appFrontend/android/.gradle/
 appFrontend/android/.idea/
 appFrontend/android/local.properties
