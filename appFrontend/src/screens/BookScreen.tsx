@@ -36,6 +36,9 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [payBooking, setPayBooking] = useState<any | null>(null);
   const [receiptUri, setReceiptUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [ownerBanks, setOwnerBanks] = useState<any[]>([]);
+  const [ownerWallets, setOwnerWallets] = useState<any[]>([]);
+  const [loadingOwnerPayouts, setLoadingOwnerPayouts] = useState(false);
 
   const load = async (reset: boolean) => {
     if (!token || loading) return;
@@ -138,7 +141,26 @@ export function BookScreen({ navigation }: BookScreenProps) {
                     ) : !b?.hasReceipt ? (
                       <TouchableOpacity
                         style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#16a34a', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
-                        onPress={() => { setPayBooking(b); setReceiptUri(null); setPayVisible(true); }}
+                    onPress={async () => {
+                      setPayBooking(b);
+                      setReceiptUri(null);
+                      setOwnerBanks([]);
+                      setOwnerWallets([]);
+                      if (b?.field?.userId && token) {
+                        try {
+                          setLoadingOwnerPayouts(true);
+                          const resp = await apiGetAuth<{ banks: any[]; wallets: any[] }>(`/payouts/owner/${b.field.userId}`, token as any);
+                          setOwnerBanks(resp?.banks || []);
+                          setOwnerWallets(resp?.wallets || []);
+                        } catch (_) {
+                          setOwnerBanks([]);
+                          setOwnerWallets([]);
+                        } finally {
+                          setLoadingOwnerPayouts(false);
+                        }
+                      }
+                      setPayVisible(true);
+                    }}
                         activeOpacity={0.8}
                       >
                         <UploadIcon size={16} color="#ffffff" />
@@ -185,11 +207,46 @@ export function BookScreen({ navigation }: BookScreenProps) {
       <Modal visible={payVisible} animationType="slide" transparent>
         <View style={styles.sheetOverlay}>
           <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setPayVisible(false)} />
-          <View style={[styles.sheetContainer, { maxHeight: '85%' }]}>
+          <View style={[styles.sheetContainer, { height: '95%' }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Upload Payment Receipt</Text>
-            <Text style={styles.sheetSubtitle}>Attach a clear image of your payment receipt. The field owner will review and confirm.</Text>
-            <View style={{ paddingHorizontal: 16, gap: 12 }}>
+            <Text style={styles.sheetTitle}>Pay Field Owner</Text>
+            <Text style={styles.sheetSubtitle}>Use one of the owner's accounts below, then upload your receipt for confirmation.</Text>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 6 }}>Owner Accounts</Text>
+              {loadingOwnerPayouts ? (
+                <Text style={{ color: '#6b7280' }}>Loading accounts...</Text>
+              ) : (
+                <>
+                  {(ownerBanks?.length || 0) > 0 ? (
+                    <View style={{ gap: 6, marginBottom: 8 }}>
+                      {ownerBanks.map((b, idx) => (
+                        <View key={`${b.id}-${idx}`} style={{ backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10 }}>
+                          <Text style={{ fontWeight: '800', color: '#111827' }}>{b.bankName}</Text>
+                          <Text style={{ color: '#374151' }}>{b.accountName}</Text>
+                          <Text style={{ color: '#374151' }}>{b.accountNumber}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {(ownerWallets?.length || 0) > 0 ? (
+                    <View style={{ gap: 6, marginBottom: 8 }}>
+                      {ownerWallets.map((w, idx) => (
+                        <View key={`${w.id}-${idx}`} style={{ backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10 }}>
+                          <Text style={{ fontWeight: '800', color: '#111827' }}>{w.company}</Text>
+                          <Text style={{ color: '#374151' }}>{w.walletNumber}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                  {(ownerBanks?.length || 0) === 0 && (ownerWallets?.length || 0) === 0 ? (
+                    <Text style={{ color: '#6b7280' }}>No payout accounts available. Contact the field owner.</Text>
+                  ) : null}
+                </>
+              )}
+            </ScrollView>
+            <View style={{ paddingHorizontal: 16, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
+              <Text style={[styles.sheetTitle, { textAlign: 'left', marginBottom: 4 }]}>Upload Payment Receipt</Text>
+              <Text style={[styles.sheetSubtitle, { textAlign: 'left', marginBottom: 8 }]}>Attach a clear image of your payment receipt. The field owner will review and confirm.</Text>
               {!!receiptUri ? (
                 <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 220, borderRadius: 10, backgroundColor: '#f3f4f6' }} />
               ) : (
@@ -197,42 +254,43 @@ export function BookScreen({ navigation }: BookScreenProps) {
                   <Text style={{ color: '#6b7280' }}>No image selected</Text>
                 </View>
               )}
-              <TouchableOpacity
-                style={styles.sheetPrimary}
-                onPress={async () => {
-                  const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                  if (perm.status !== 'granted') return;
-                  const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
-                  if (!res.canceled && res.assets && res.assets[0]?.uri) {
-                    setReceiptUri(res.assets[0].uri);
-                  }
-                }}
-              >
-                <Text style={styles.sheetPrimaryText}>{receiptUri ? 'Change Image' : 'Choose Image'}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.sheetPrimary, { backgroundColor: '#16a34a', opacity: receiptUri && !uploading ? 1 : 0.6 }]}
-                disabled={!receiptUri || uploading}
-                onPress={async () => {
-                  if (!payBooking || !receiptUri) return;
-                  try {
-                    setUploading(true);
-                    const form = new FormData();
-                    // @ts-ignore: RN FormData file
-                    form.append('receipt', { uri: receiptUri, name: 'receipt.jpg', type: 'image/jpeg' });
-                    await apiPostMultipartAuth(`/bookings/${payBooking.id}/receipt`, form as any, token as any);
-                    setUploading(false);
-                    setPayVisible(false);
-                    // Mark the booking as having a receipt locally to hide Pay button
-                    setItems((prev) => prev.map((it) => it.id === payBooking.id ? { ...it, hasReceipt: true } : it));
-                    setReceiptUri(null);
-                  } catch (e) {
-                    setUploading(false);
-                  }
-                }}
-              >
-                <Text style={styles.sheetPrimaryText}>{uploading ? 'Uploading...' : 'Submit Receipt'}</Text>
-              </TouchableOpacity>
+              <View style={{ gap: 10, marginTop: 10, marginBottom: 6 }}>
+                <TouchableOpacity
+                  style={styles.sheetPrimary}
+                  onPress={async () => {
+                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                    if (perm.status !== 'granted') return;
+                    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
+                    if (!res.canceled && res.assets && res.assets[0]?.uri) {
+                      setReceiptUri(res.assets[0].uri);
+                    }
+                  }}
+                >
+                  <Text style={styles.sheetPrimaryText}>{receiptUri ? 'Change Image' : 'Choose Image'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.sheetPrimary, { backgroundColor: '#16a34a', opacity: receiptUri && !uploading ? 1 : 0.6 }]}
+                  disabled={!receiptUri || uploading}
+                  onPress={async () => {
+                    if (!payBooking || !receiptUri) return;
+                    try {
+                      setUploading(true);
+                      const form = new FormData();
+                      // @ts-ignore: RN FormData file
+                      form.append('receipt', { uri: receiptUri, name: 'receipt.jpg', type: 'image/jpeg' });
+                      await apiPostMultipartAuth(`/bookings/${payBooking.id}/receipt`, form as any, token as any);
+                      setUploading(false);
+                      setPayVisible(false);
+                      setItems((prev) => prev.map((it) => it.id === payBooking.id ? { ...it, hasReceipt: true } : it));
+                      setReceiptUri(null);
+                    } catch (e) {
+                      setUploading(false);
+                    }
+                  }}
+                >
+                  <Text style={styles.sheetPrimaryText}>{uploading ? 'Uploading...' : 'Submit Receipt'}</Text>
+                </TouchableOpacity>
+              </View>
               <SafeAreaView edges={["bottom"]} />
             </View>
           </View>

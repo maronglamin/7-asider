@@ -9,6 +9,7 @@ import fieldKycRoutes from './routes/fieldKyc';
 import bookingRoutes from './routes/bookings';
 import bookingsRoutes from './routes/bookings';
 import adminRoutes from './routes/admin';
+import payoutsRoutes from './routes/payouts';
 import path from 'path';
 
 const app = express();
@@ -34,6 +35,7 @@ app.use('/fields/kyc', fieldKycRoutes);
 app.use('/bookings', bookingRoutes);
 app.use('/fields/bookings', bookingsRoutes);
 app.use('/admin', adminRoutes);
+app.use('/payouts', payoutsRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

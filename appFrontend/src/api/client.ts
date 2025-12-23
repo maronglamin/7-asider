@@ -92,4 +92,23 @@ export async function apiPatchAuth<T>(path: string, body: any, token: string): P
   return res.json();
 }
 
+export async function apiDeleteAuth<T>(path: string, token: string): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  // Some deletes return empty; try parsing JSON, fallback to ok:true
+  try {
+    return await res.json();
+  } catch {
+    return { ok: true } as any;
+  }
+}
+
 

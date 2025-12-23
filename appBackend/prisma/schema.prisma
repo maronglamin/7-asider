@@ -24,6 +24,8 @@ model User {
   bookings       FieldBooking[]
   reservations   Booking[]
   PaymentReceipt PaymentReceipt[]
+  bankAccounts   BankAccount[]
+  walletAccounts WalletAccount[]
 }
 
 model Session {
@@ -176,4 +178,31 @@ model PaymentReceipt {
 
   @@index([bookingId, createdAt])
   @@index([userId, createdAt])
+}
+
+model BankAccount {
+  id            String   @id @default(cuid())
+  userId        String
+  bankName      String
+  accountName   String
+  accountNumber String
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@unique([userId, accountNumber])
+}
+
+model WalletAccount {
+  id           String   @id @default(cuid())
+  userId       String
+  company      String
+  walletNumber String
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@unique([userId, walletNumber])
 }

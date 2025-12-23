@@ -26,6 +26,7 @@ import FieldDetailAdminScreen from './src/screens/admin/FieldDetailAdminScreen';
 import AdminBookingsScreen from './src/screens/admin/AdminBookingsScreen';
 import AdminBookingsListScreen from './src/screens/admin/AdminBookingsListScreen';
 import UsersScreen from './src/screens/admin/UsersScreen';
+import BanksWalletsScreen from './src/screens/BanksWalletsScreen';
 
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
@@ -113,6 +114,7 @@ export default function App() {
           <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
           <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
           <Stack.Screen name="Users" component={UsersScreen} />
+          <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
           </Stack.Navigator>
         </NavigationContainer>
       </AuthProvider>

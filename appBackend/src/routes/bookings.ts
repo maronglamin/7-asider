@@ -208,6 +208,7 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
             city: true,
             images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
             pricePerHour: true,
+            userId: true,
           },
         },
         _count: { select: { PaymentReceipt: true } },

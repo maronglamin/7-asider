@@ -38,8 +38,9 @@ export function ProfileScreen() {
       icon: Bell,
     },
     {
-      label: 'Wallet',
+      label: 'Banks & Wallets',
       icon: Wallet,
+      onPress: () => navigation.navigate('BanksWallets' as never),
     },
     {
       label: 'Settings',
