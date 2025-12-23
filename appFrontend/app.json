@@ -5,6 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./assets/logo.JPG",
     "splash": {
       "resizeMode": "contain",
       "backgroundColor": "#16a34a"
@@ -18,6 +19,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.JPG",
         "backgroundColor": "#16a34a"
       },
       "package": "com.sevenaside.app"
