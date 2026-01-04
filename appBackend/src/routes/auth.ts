@@ -13,12 +13,22 @@ router.post('/google', async (req: Request, res: Response) => {
     const { idToken } = req.body as { idToken: string };
     if (!idToken) return res.status(400).json({ error: 'idToken required' });
     const profile = await verifyGoogleIdToken(idToken);
-    // upsert user and store session
-    const user = await prisma.user.upsert({
-      where: { email: profile.email || `${profile.sub}@google.local` },
-      create: { email: profile.email || `${profile.sub}@google.local`, name: profile.name, provider: 'google', providerId: profile.sub },
-      update: { name: profile.name, providerId: profile.sub },
-    });
+    const email = profile.email || `${profile.sub}@google.local`;
+    // find non-terminated user with same email
+    let user = await prisma.user.findFirst({ where: { email, NOT: { status: 'TERMINATED' as any } } as any });
+    if (user) {
+      // If blocked or terminated, stop; if active, update name/providerId
+      const uStatus = (user as any).status;
+      if (uStatus === 'TERMINATED' || uStatus === 'BLOCKED') {
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+      user = await prisma.user.update({ where: { id: user.id }, data: { name: profile.name, provider: 'google', providerId: profile.sub } });
+    } else {
+      user = await prisma.user.create({ data: { email, name: profile.name, provider: 'google', providerId: profile.sub, status: 'ACTIVE' as any } as any });
+    }
+    if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
     const jwt = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'google' });
     await prisma.session.create({ data: { userId: user.id, token: jwt } });
     res.json({ token: jwt, profile });
@@ -32,11 +42,19 @@ router.post('/facebook', async (req: Request, res: Response) => {
     const { accessToken } = req.body as { accessToken: string };
     if (!accessToken) return res.status(400).json({ error: 'accessToken required' });
     const profile = await verifyFacebookAccessToken(accessToken);
-    const user = await prisma.user.upsert({
-      where: { email: profile.email || `${profile.id}@facebook.local` },
-      create: { email: profile.email || `${profile.id}@facebook.local`, name: profile.name, provider: 'facebook', providerId: profile.id },
-      update: { name: profile.name, providerId: profile.id },
-    });
+    const email = profile.email || `${profile.id}@facebook.local`;
+    let user = await prisma.user.findFirst({ where: { email, NOT: { status: 'TERMINATED' as any } } as any });
+    if (user) {
+      if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+      user = await prisma.user.update({ where: { id: user.id }, data: { name: profile.name, provider: 'facebook', providerId: profile.id } });
+    } else {
+      user = await prisma.user.create({ data: { email, name: profile.name, provider: 'facebook', providerId: profile.id, status: 'ACTIVE' as any } as any });
+    }
+    if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
     const jwt = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'facebook' });
     await prisma.session.create({ data: { userId: user.id, token: jwt } });
     res.json({ token: jwt, profile });
@@ -50,11 +68,19 @@ router.post('/apple', async (req: Request, res: Response) => {
     const { identityToken, clientId } = req.body as { identityToken: string; clientId: string };
     if (!identityToken || !clientId) return res.status(400).json({ error: 'identityToken and clientId required' });
     const profile = await verifyAppleIdentityToken(identityToken, clientId);
-    const user = await prisma.user.upsert({
-      where: { email: profile.email || `${profile.sub}@apple.local` },
-      create: { email: profile.email || `${profile.sub}@apple.local`, provider: 'apple', providerId: profile.sub },
-      update: { providerId: profile.sub },
-    });
+    const email = profile.email || `${profile.sub}@apple.local`;
+    let user = await prisma.user.findFirst({ where: { email, NOT: { status: 'TERMINATED' as any } } as any });
+    if (user) {
+      if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+      user = await prisma.user.update({ where: { id: user.id }, data: { provider: 'apple', providerId: profile.sub } });
+    } else {
+      user = await prisma.user.create({ data: { email, provider: 'apple', providerId: profile.sub, status: 'ACTIVE' as any } as any });
+    }
+    if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
     const jwt = signJwt({ userId: user.id, email: user.email, provider: 'apple' });
     await prisma.session.create({ data: { userId: user.id, token: jwt } });
     res.json({ token: jwt, profile });
@@ -133,6 +159,28 @@ router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
     }
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update profile' });
+  }
+});
+
+// Update current user's account status (self-terminate)
+router.patch('/me/status', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const { status } = req.body as { status?: string };
+    if (!status || status.toUpperCase() !== 'TERMINATED') {
+      return res.status(400).json({ error: 'Only TERMINATED is allowed for self-update' });
+    }
+    await prisma.user.update({
+      where: { id: userId },
+      data: { status: 'TERMINATED' as any },
+    });
+    await prisma.session.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to update status' });
   }
 });
 

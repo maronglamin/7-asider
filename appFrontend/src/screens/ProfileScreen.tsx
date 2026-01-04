@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Settings, Bell, Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck } from 'lucide-react-native';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
@@ -34,17 +34,14 @@ export function ProfileScreen() {
       onPress: () => navigation.navigate('UserInfo' as never),
     },
     {
-      label: 'Notifications',
-      icon: Bell,
-    },
-    {
       label: 'Banks & Wallets',
       icon: Wallet,
       onPress: () => navigation.navigate('BanksWallets' as never),
     },
     {
-      label: 'Settings',
-      icon: Settings,
+      label: 'Delete Account',
+      icon: Trash2,
+      onPress: () => navigation.navigate('DeleteAccount' as never),
     },
   ];
 

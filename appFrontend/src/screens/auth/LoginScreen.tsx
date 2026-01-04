@@ -4,8 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Platform,
-  Image,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Mail, ArrowRight } from 'lucide-react-native';
@@ -17,20 +15,6 @@ interface LoginScreenProps {
 
 export function LoginScreen({ navigation }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
-  const handleGoogleLogin = () => {
-    // TODO: Implement Google login
-    console.log('Google login pressed');
-  };
-
-  const handleAppleLogin = () => {
-    // TODO: Implement Apple/iCloud login
-    console.log('Apple login pressed');
-  };
-
-  const handleFacebookLogin = () => {
-    // TODO: Implement Facebook login
-    console.log('Facebook login pressed');
-  };
 
   const handleEmailLogin = () => {
     navigation?.navigate('Register');
@@ -48,48 +32,6 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
       {/* Login Options */}
       <View style={styles.content}>
-        {/* Social Login Buttons */}
-        <View style={styles.socialButtons}>
-          <TouchableOpacity style={styles.socialButton} onPress={handleGoogleLogin}>
-            <View style={styles.logoContainer}>
-              <Image 
-                source={require('../../../assets/google.png')} 
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.socialButtonText}>Continue with Google</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.socialButton} onPress={handleAppleLogin}>
-            <View style={styles.logoContainer}>
-              <Image 
-                source={require('../../../assets/Apple.jpg')} 
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.socialButtonText}>Continue with Apple</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.socialButton} onPress={handleFacebookLogin}>
-            <View style={styles.logoContainer}>
-              <Image 
-                source={require('../../../assets/facebook.png')} 
-                style={styles.logoImage}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.socialButtonText}>Continue with Facebook</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Divider */}
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or</Text>
-          <View style={styles.dividerLine} />
-        </View>
 
         {/* Email Registration */}
         <TouchableOpacity style={styles.emailButton} onPress={handleEmailLogin}>
@@ -138,7 +80,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 32,
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
   },
   socialButtons: {
     marginBottom: 32,

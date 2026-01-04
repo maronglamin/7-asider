@@ -10,13 +10,14 @@ generator client {
 
 model User {
   id             String           @id @default(cuid())
-  email          String           @unique
+  email          String
   username       String?          @unique
   name           String?
   passwordHash   String?
   provider       String? // 'google' | 'apple' | 'facebook' | 'email'
   providerId     String? // external provider user id
   supadmin       Boolean          @default(false)
+  status         UserStatus       @default(ACTIVE)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   sessions       Session[]
@@ -26,6 +27,8 @@ model User {
   PaymentReceipt PaymentReceipt[]
   bankAccounts   BankAccount[]
   walletAccounts WalletAccount[]
+
+  @@index([email])
 }
 
 model Session {
@@ -35,6 +38,12 @@ model Session {
   createdAt DateTime  @default(now())
   revokedAt DateTime?
   user      User      @relation(fields: [userId], references: [id])
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  TERMINATED
 }
 
 enum FieldKycStatus {
