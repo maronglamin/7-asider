@@ -13,6 +13,12 @@ module.exports = ({ config }) => ({
   plugins: [
     ...(config.plugins || []),
     'expo-secure-store',
+    [
+      'expo-image-picker',
+      {
+        photosPermission: 'To attach photos when uploading payment receipts for bookings or adding images of your field for listing. Photos are only used for these features.',
+      },
+    ],
   ],
 });
 

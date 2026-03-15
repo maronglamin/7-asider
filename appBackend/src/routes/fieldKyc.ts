@@ -24,6 +24,11 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+function imageBaseUrl(): string {
+  const base = (process.env.API_BASE || '').replace(/\/$/, '');
+  return base || 'https://seven-aside.phantommetrics.gm';
+}
+
 // GET /fields/kyc/me - fetch current user's kyc record
 router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
@@ -242,8 +247,9 @@ router.post('/', requireAuth, upload.array('images', 3), async (req: AuthedReque
       return res.status(400).json({ error: 'Upload 1 to 3 images' });
     }
 
-    // Build public URLs for saved files (served by express static)
-    const imageUrls = files.map((f) => `/uploads/fields/${path.basename(f.path)}`);
+    // Build full HTTPS URLs for saved files (served by express static)
+    const base = imageBaseUrl();
+    const imageUrls = files.map((f) => `${base}/uploads/fields/${path.basename(f.path)}`);
 
     const data = {
       userId,

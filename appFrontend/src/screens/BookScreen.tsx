@@ -10,6 +10,7 @@ import {
   TextInput,
   Platform,
   Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -18,6 +19,7 @@ import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth, apiPostMultipartAuth, API_BASE } from '../api/client';
 import * as ImagePicker from 'expo-image-picker';
+import { getUploadableImageUri } from '../utils/imageUpload';
 
 interface BookScreenProps {
   navigation?: any;
@@ -258,11 +260,18 @@ export function BookScreen({ navigation }: BookScreenProps) {
                 <TouchableOpacity
                   style={styles.sheetPrimary}
                   onPress={async () => {
-                    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                    if (perm.status !== 'granted') return;
-                    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
-                    if (!res.canceled && res.assets && res.assets[0]?.uri) {
-                      setReceiptUri(res.assets[0].uri);
+                    try {
+                      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                      if (perm.status !== 'granted') {
+                        Alert.alert('Photo access needed', 'To upload your payment receipt, allow photo access. You can enable it in Settings if you change your mind.');
+                        return;
+                      }
+                      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
+                      if (!res.canceled && res.assets && res.assets[0]?.uri) {
+                        setReceiptUri(res.assets[0].uri);
+                      }
+                    } catch (e: any) {
+                      Alert.alert('Could not open gallery', e?.message || 'Failed to pick an image. Try again.');
                     }
                   }}
                 >
@@ -275,16 +284,18 @@ export function BookScreen({ navigation }: BookScreenProps) {
                     if (!payBooking || !receiptUri) return;
                     try {
                       setUploading(true);
+                      const uploadUri = await getUploadableImageUri(receiptUri);
                       const form = new FormData();
                       // @ts-ignore: RN FormData file
-                      form.append('receipt', { uri: receiptUri, name: 'receipt.jpg', type: 'image/jpeg' });
+                      form.append('receipt', { uri: uploadUri, name: 'receipt.jpg', type: 'image/jpeg' });
                       await apiPostMultipartAuth(`/bookings/${payBooking.id}/receipt`, form as any, token as any);
                       setUploading(false);
                       setPayVisible(false);
                       setItems((prev) => prev.map((it) => it.id === payBooking.id ? { ...it, hasReceipt: true } : it));
                       setReceiptUri(null);
-                    } catch (e) {
+                    } catch (e: any) {
                       setUploading(false);
+                      Alert.alert('Upload failed', e?.message || 'Could not upload receipt. Please try again.');
                     }
                   }}
                 >

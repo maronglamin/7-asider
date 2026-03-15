@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/AuthContext';
 import { apiPostMultipartAuth } from '../../api/client';
+import { getUploadableImageUri } from '../../utils/imageUpload';
 import { ChevronLeft } from 'lucide-react-native';
 
 export default function RegisterFieldScreen({ navigation }: any) {
@@ -29,25 +30,29 @@ export default function RegisterFieldScreen({ navigation }: any) {
       Alert.alert('Limit reached', 'You can upload up to 3 images.');
       return;
     }
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission required', 'We need photo library permission to pick an image.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.9,
-    });
-    if (!result.canceled && Array.isArray(result.assets) && result.assets.length > 0 && result.assets[0] && result.assets[0].uri) {
-      const a = result.assets[0] as { uri: string; fileName?: string; mimeType?: string };
-      const uri = a.uri;
-      const fileName = a.fileName || uri.split('/').pop() || `field_${Date.now()}.jpg`;
-      const mimeType = a.mimeType || 'image/jpeg';
-      setPickedImages((imgs) => {
-        const next = [...imgs, { uri, name: fileName, type: mimeType }];
-        return next.slice(0, 3);
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Photo access needed', 'To add photos of your field for your listing, allow photo access. You can enable it in Settings if you change your mind.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.9,
       });
+      if (!result.canceled && Array.isArray(result.assets) && result.assets.length > 0 && result.assets[0] && result.assets[0].uri) {
+        const a = result.assets[0] as { uri: string; fileName?: string; mimeType?: string };
+        const uri = a.uri;
+        const fileName = a.fileName || uri.split('/').pop()?.split('?')[0] || `field_${Date.now()}.jpg`;
+        const mimeType = a.mimeType || 'image/jpeg';
+        setPickedImages((imgs) => {
+          const next = [...imgs, { uri, name: fileName, type: mimeType }];
+          return next.slice(0, 3);
+        });
+      }
+    } catch (e: any) {
+      Alert.alert('Could not open gallery', e?.message || 'Failed to pick an image. Try again.');
     }
   };
 
@@ -70,13 +75,14 @@ export default function RegisterFieldScreen({ navigation }: any) {
       if (pricePerHour) form.append('pricePerHour', String(Number(pricePerHour)));
       form.append('hasLights', String(hasLights));
       if (description.trim()) form.append('description', description.trim());
-      pickedImages.forEach((img) => {
+      for (const img of pickedImages) {
+        const uploadUri = await getUploadableImageUri(img.uri);
         form.append('images', {
-          uri: img.uri as any,
+          uri: uploadUri as any,
           name: img.name,
           type: img.type,
         } as any);
-      });
+      }
       await apiPostMultipartAuth<{ id: string }>(`/fields/kyc`, form, token as string);
       Alert.alert('Submitted', 'Your field application was submitted for approval.');
       setName('');

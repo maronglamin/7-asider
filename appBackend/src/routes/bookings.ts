@@ -23,6 +23,11 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+function imageBaseUrl(): string {
+  const base = (process.env.API_BASE || '').replace(/\/$/, '');
+  return base || 'https://seven-aside.phantommetrics.gm';
+}
+
 // Helpers
 function toUtcMidnight(dateStr: string): Date {
   const d = new Date(dateStr + 'T00:00:00.000Z');
@@ -377,7 +382,7 @@ router.post('/:id/receipt', requireAuth, upload.single('receipt'), async (req: A
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
     const file = (req as any).file as any | undefined;
     if (!file) return res.status(400).json({ error: 'receipt file is required' });
-    const url = `/uploads/receipts/${path.basename(file.path)}`;
+    const url = `${imageBaseUrl()}/uploads/receipts/${path.basename(file.path)}`;
     const note = (req.body?.note as string | undefined) || null;
     const receipt = await (prisma as any).paymentReceipt.create({
       data: {

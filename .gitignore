@@ -40,6 +40,7 @@ appFrontend/android/app/build/
 *.jks
 *.aab
 *.apk
+*.appFrontend/android/app/
 
 # iOS
 appFrontend/ios/Pods/
