@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, Clock, Minus, Plus } from 'lucide-react-native';
-import { apiGet, apiPostAuth, resolveMediaUrl } from '../api/client';
+import { apiGet, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 type DateItem = {
@@ -30,9 +30,63 @@ interface BookingScreenProps {
   route?: any;
 }
 
+const toDateKey = (date: Date) => new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate())).toISOString().slice(0, 10);
+
+const toSlotLabel = (hour: number) => `${String(hour).padStart(2, '0')}:00 - ${String((hour + 1) % 24).padStart(2, '0')}:00`;
+
+const addDaysToKey = (dateKey: string, days: number) => {
+  const next = new Date(`${dateKey}T00:00:00.000Z`);
+  next.setUTCDate(next.getUTCDate() + days);
+  return toDateKey(next);
+};
+
+const buildInitialSelection = (booking: any) => {
+  const start = booking?.startAt ? new Date(booking.startAt) : null;
+  const end = booking?.endAt ? new Date(booking.endAt) : null;
+  if (!start || !end) return null;
+
+  const totalHours = Math.max(1, Math.round((+end - +start) / 3600000));
+  const bookingType = String(booking?.type || 'HOURLY').toUpperCase();
+  const selectedDate = toDateKey(start);
+
+  if (bookingType === 'FULL_DAY') {
+    return {
+      preset: 'day' as const,
+      customHours: 1,
+      selectedDate,
+      selectedDates: [selectedDate],
+      selectedTimes: [] as string[],
+    };
+  }
+
+  if (bookingType === 'MULTI_DAY') {
+    const totalDays = Math.max(1, Math.round(totalHours / 24));
+    return {
+      preset: totalDays === 2 ? '2d' as const : totalDays === 3 ? '3d' as const : 'week' as const,
+      customHours: 1,
+      selectedDate,
+      selectedDates: Array.from({ length: totalDays }, (_, i) => addDaysToKey(selectedDate, i)),
+      selectedTimes: [] as string[],
+    };
+  }
+
+  const startHour = start.getUTCHours();
+  return {
+    preset: totalHours === 1 ? '1h' as const : totalHours === 2 ? '2h' as const : totalHours === 3 ? '3h' as const : totalHours === 12 ? 'halfDay' as const : 'custom' as const,
+    customHours: totalHours,
+    selectedDate,
+    selectedDates: [selectedDate],
+    selectedTimes: Array.from({ length: totalHours }, (_, i) => toSlotLabel(startHour + i)),
+  };
+};
+
 export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const { token } = useAuth();
   const fieldId = route?.params?.fieldId as string | undefined;
+  const rescheduleBooking = route?.params?.booking;
+  const isReschedule = route?.params?.mode === 'reschedule' && !!rescheduleBooking?.id;
+  const existingBookingId = isReschedule ? String(rescheduleBooking?.id) : '';
+  const didPrefillRef = useRef(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [endDate, setEndDate] = useState<string>('');
@@ -46,6 +100,26 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [field, setField] = useState<any | null>(null);
   const [imageIndex, setImageIndex] = useState<number>(0);
+
+  const buildAvailabilityPath = React.useCallback((date: string) =>
+    `/bookings/availability?fieldId=${encodeURIComponent(fieldId || '')}&date=${encodeURIComponent(date)}${existingBookingId ? `&excludeBookingId=${encodeURIComponent(existingBookingId)}` : ''}`,
+  [existingBookingId, fieldId]);
+
+  useEffect(() => {
+    didPrefillRef.current = false;
+  }, [existingBookingId]);
+
+  useEffect(() => {
+    if (!isReschedule || didPrefillRef.current) return;
+    const initial = buildInitialSelection(rescheduleBooking);
+    if (!initial) return;
+    setPreset(initial.preset);
+    setCustomHours(Math.max(1, Math.min(24, initial.customHours)));
+    setSelectedDate(initial.selectedDate);
+    setSelectedDates(initial.selectedDates);
+    setSelectedTimes(initial.selectedTimes);
+    didPrefillRef.current = true;
+  }, [isReschedule, rescheduleBooking]);
 
   useEffect(() => {
     if (!fieldId) {
@@ -78,7 +152,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       // reload availability if date already selected
       if (selectedDate) {
         const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
-          `/bookings/availability?fieldId=${encodeURIComponent(fieldId)}&date=${encodeURIComponent(selectedDate)}`
+          buildAvailabilityPath(selectedDate)
         );
         const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
         setBookedHours(taken);
@@ -88,10 +162,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     } finally {
       setRefreshing(false);
     }
-  }, [fieldId, selectedDate]);
+  }, [buildAvailabilityPath, fieldId, selectedDate]);
 
   // Generate next 7 days
-  const generateDates = (): DateItem[] => {
+  const generateDates = (anchorDate?: string): DateItem[] => {
     const dates: DateItem[] = [];
     for (let i = 0; i < 7; i++) {
       const date = new Date();
@@ -104,10 +178,21 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         isWeekend: [0, 6].includes(date.getDay()),
       });
     }
+    if (anchorDate && !dates.some((d) => d.full === anchorDate)) {
+      const extra = new Date(`${anchorDate}T00:00:00.000Z`);
+      dates.push({
+        full: anchorDate,
+        day: extra.toLocaleDateString('en-US', { weekday: 'short' }),
+        date: extra.getUTCDate(),
+        month: extra.toLocaleDateString('en-US', { month: 'short' }),
+        isWeekend: [0, 6].includes(extra.getUTCDay()),
+      });
+      dates.sort((a, b) => a.full.localeCompare(b.full));
+    }
     return dates;
   };
 
-  const dates: DateItem[] = generateDates();
+  const dates: DateItem[] = useMemo(() => generateDates(selectedDate), [selectedDate]);
 
   // Generate hourly time slots from 00:00 to 23:00
   const generateTimeSlots = () => {
@@ -133,7 +218,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       try {
         console.log('[BookingScreen] Loading availability', { fieldId, selectedDate });
         const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
-          `/bookings/availability?fieldId=${encodeURIComponent(fieldId)}&date=${encodeURIComponent(selectedDate)}`
+          buildAvailabilityPath(selectedDate)
         );
         const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
         console.log('[BookingScreen] Availability loaded', { taken });
@@ -144,7 +229,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         setBookedHours([]);
       }
     })();
-  }, [route?.params?.fieldId, selectedDate]);
+  }, [buildAvailabilityPath, route?.params?.fieldId, selectedDate]);
 
   const parseHour = (slot: string) => parseInt(slot.slice(0, 2), 10);
 
@@ -195,21 +280,37 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         const hours = selectedTimes.length;
         body = { fieldId, kind: preset === 'custom' ? 'CUSTOM' : 'HOURLY', date: selectedDate, startHour, hours, timezone };
       }
+      if (isReschedule && existingBookingId) {
+        console.log('[BookingScreen] Rescheduling booking', { bookingId: existingBookingId, body });
+        const res = await apiPatchAuth<{ ok: boolean; booking: any }>(`/bookings/${existingBookingId}/reschedule`, body, token || '');
+        console.log('[BookingScreen] Booking rescheduled');
+        const nextBooking = {
+          ...(rescheduleBooking || {}),
+          ...(res?.booking || {}),
+          field: res?.booking?.field || field || rescheduleBooking?.field,
+        };
+        Alert.alert('Booking Updated', 'Your booking has been rescheduled.', [{
+          text: 'OK',
+          onPress: () => navigation?.navigate('CustomerBookedDetails', { booking: nextBooking }),
+        }]);
+        return;
+      }
+
       console.log('[BookingScreen] Creating booking', body);
       await apiPostAuth<{ ok: boolean; bookingId: string; totalAmount: number }>(`/bookings`, body, token || '');
       console.log('[BookingScreen] Booking created');
       Alert.alert('Booking Confirmed', 'Your booking has been created.', [{ text: 'OK', onPress: () => navigation?.goBack() }]);
     } catch (e: any) {
-      const msg = e?.message || 'Failed to create booking';
+      const msg = e?.message || (isReschedule ? 'Failed to reschedule booking' : 'Failed to create booking');
       console.log('[BookingScreen] Booking error', msg);
       if (/conflict/i.test(msg) || /409/.test(msg)) {
-        setConflictMsg('Selected time conflicts with an existing booking. Please choose another time.');
+        setConflictMsg(`Selected ${isHoursBased ? 'time' : 'date'} conflicts with an existing booking. Please choose another option.`);
         // Refresh availability
         const fieldId = route?.params?.fieldId as string | undefined;
         if (fieldId && selectedDate) {
           try {
             const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
-              `/bookings/availability?fieldId=${encodeURIComponent(fieldId)}&date=${encodeURIComponent(selectedDate)}`
+              buildAvailabilityPath(selectedDate)
             );
             const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
             setBookedHours(taken);
@@ -218,7 +319,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       } else {
         setConflictMsg(msg);
       }
-      Alert.alert('Booking Failed', msg);
+      Alert.alert(isReschedule ? 'Reschedule Failed' : 'Booking Failed', msg);
     }
   };
 
@@ -304,6 +405,9 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
           <Text style={styles.fieldDistance}>{field?.city || field?.address || ''}</Text>
           <Text style={styles.fieldPrice}>{pricePerHour != null ? `GMD ${pricePerHour}/hour` : '—'}</Text>
         </View>
+        {isReschedule && (
+          <Text style={styles.rescheduleNote}>Choose a new available date and confirm to update this booking.</Text>
+        )}
       </View>
 
       <ScrollView
@@ -457,7 +561,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
             </View>
           </View>
           <TouchableOpacity style={styles.confirmButton} onPress={handleBooking}>
-            <Text style={styles.confirmButtonText}>Confirm Booking</Text>
+            <Text style={styles.confirmButtonText}>{isReschedule ? 'Confirm Reschedule' : 'Confirm Booking'}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -592,6 +696,11 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#16a34a',
+  },
+  rescheduleNote: {
+    marginTop: 10,
+    fontSize: 13,
+    color: '#166534',
   },
   content: {
     flex: 1,

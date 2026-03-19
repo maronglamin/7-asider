@@ -40,6 +40,82 @@ function clampHour(n: any): number {
   return Math.min(23, Math.max(0, Math.floor(x)));
 }
 
+function resolveBookingType(kind: any): 'HOURLY'|'FULL_DAY'|'MULTI_DAY'|'CUSTOM' {
+  if (String(kind).toUpperCase() === 'FULL_DAY') return 'FULL_DAY';
+  if (String(kind).toUpperCase() === 'MULTI_DAY') return 'MULTI_DAY';
+  if (String(kind).toUpperCase() === 'CUSTOM') return 'CUSTOM';
+  return 'HOURLY';
+}
+
+function buildBookingPlan(input: any, field: any) {
+  const {
+    fieldId,
+    kind,
+    date,
+    dates,
+    startHour,
+    hours,
+    timezone,
+    note,
+  } = input || {};
+
+  const resolvedFieldId = fieldId || field?.id;
+  if (!resolvedFieldId) throw new Error('fieldId is required');
+  if (!field) throw new Error('Field not found');
+  if (field.status !== 'APPROVED') throw new Error('Field not available for booking');
+
+  const bookingType = resolveBookingType(kind);
+  const pricePerHour: number = field.pricePerHour != null ? Number(field.pricePerHour) : 0;
+  if (!isFinite(pricePerHour) || pricePerHour < 0) {
+    throw new Error('Invalid field pricing');
+  }
+
+  const units: { date: Date; hourStart: number }[] = [];
+  if (bookingType === 'FULL_DAY') {
+    const ds = Array.isArray(dates) ? dates : (date ? [date] : []);
+    if (ds.length < 1) throw new Error('dates required for FULL_DAY');
+    for (const d of ds) {
+      const day = toUtcMidnight(d);
+      for (let h = 0; h < 24; h++) units.push({ date: day, hourStart: h });
+    }
+  } else if (bookingType === 'MULTI_DAY') {
+    const ds = Array.isArray(dates) ? dates : [];
+    if (ds.length < 1) throw new Error('dates required for MULTI_DAY');
+    for (const d of ds) {
+      const day = toUtcMidnight(d);
+      for (let h = 0; h < 24; h++) units.push({ date: day, hourStart: h });
+    }
+  } else {
+    if (!date) throw new Error('date is required');
+    const start = clampHour(startHour);
+    const total = Math.max(1, Math.min(24, Number(hours) || 1));
+    if (start + total > 24) throw new Error('Selected range exceeds day boundary');
+    const day = toUtcMidnight(date);
+    for (let h = 0; h < total; h++) units.push({ date: day, hourStart: start + h });
+  }
+
+  if (units.length === 0) throw new Error('No booking units computed');
+
+  const sorted = [...units].sort((a, b) => a.date.getTime() - b.date.getTime() || a.hourStart - b.hourStart);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const startAt = new Date(first.date);
+  startAt.setUTCHours(first.hourStart, 0, 0, 0);
+  const endAt = new Date(last.date);
+  endAt.setUTCHours(last.hourStart + 1, 0, 0, 0);
+
+  return {
+    fieldId: resolvedFieldId,
+    bookingType,
+    units,
+    startAt,
+    endAt,
+    totalAmount: pricePerHour * units.length,
+    timezone,
+    note,
+  };
+}
+
 // POST /bookings - create a booking
 // Body variants:
 // - Hours-based: { fieldId, kind: 'HOURLY'|'CUSTOM', date: 'YYYY-MM-DD', startHour, hours, timezone? }
@@ -48,78 +124,24 @@ function clampHour(n: any): number {
 router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
-    const {
-      fieldId,
-      kind,
-      date,
-      dates,
-      startHour,
-      hours,
-      timezone,
-      note,
-    } = req.body as any;
+    const { fieldId } = req.body as any;
 
     if (!fieldId) return res.status(400).json({ error: 'fieldId is required' });
-    console.log('[POST /bookings] user:', userId, 'body:', { fieldId, kind, date, dates, startHour, hours, timezone });
+    console.log('[POST /bookings] user:', userId, 'body:', req.body);
     const field = await (prisma as any).fieldKyc.findUnique({ where: { id: fieldId } });
     if (!field) return res.status(404).json({ error: 'Field not found' });
-    if (field.status !== 'APPROVED') {
-      console.warn('[POST /bookings] rejected: field not approved', { fieldId, fieldStatus: field.status });
-      return res.status(400).json({ error: 'Field not available for booking' });
-    }
-
-    let bookingType: 'HOURLY'|'FULL_DAY'|'MULTI_DAY'|'CUSTOM' = 'HOURLY';
-    if (String(kind).toUpperCase() === 'FULL_DAY') bookingType = 'FULL_DAY';
-    else if (String(kind).toUpperCase() === 'MULTI_DAY') bookingType = 'MULTI_DAY';
-    else if (String(kind).toUpperCase() === 'CUSTOM') bookingType = 'CUSTOM';
-
-    const pricePerHour: number = field.pricePerHour != null ? Number(field.pricePerHour) : 0;
-    if (!isFinite(pricePerHour) || pricePerHour < 0) {
-      return res.status(400).json({ error: 'Invalid field pricing' });
-    }
-
-    // Build units and compute total hours
-    const units: { date: Date; hourStart: number }[] = [];
-    if (bookingType === 'FULL_DAY') {
-      const ds = Array.isArray(dates) ? dates : (date ? [date] : []);
-      if (ds.length < 1) return res.status(400).json({ error: 'dates required for FULL_DAY' });
-      for (const d of ds) {
-        const day = toUtcMidnight(d);
-        for (let h = 0; h < 24; h++) units.push({ date: day, hourStart: h });
-      }
-    } else if (bookingType === 'MULTI_DAY') {
-      const ds = Array.isArray(dates) ? dates : [];
-      if (ds.length < 1) return res.status(400).json({ error: 'dates required for MULTI_DAY' });
-      for (const d of ds) {
-        const day = toUtcMidnight(d);
-        for (let h = 0; h < 24; h++) units.push({ date: day, hourStart: h });
-      }
-    } else {
-      // HOURLY or CUSTOM
-      if (!date) return res.status(400).json({ error: 'date is required' });
-      const start = clampHour(startHour);
-      const total = Math.max(1, Math.min(24, Number(hours) || 1));
-      if (start + total > 24) return res.status(400).json({ error: 'Selected range exceeds day boundary' });
-      const day = toUtcMidnight(date);
-      for (let h = 0; h < total; h++) units.push({ date: day, hourStart: start + h });
-    }
-
-    if (units.length === 0) return res.status(400).json({ error: 'No booking units computed' });
-
-    // Compute startAt/endAt from units
-    const sorted = [...units].sort((a, b) => a.date.getTime() - b.date.getTime() || a.hourStart - b.hourStart);
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    const startAt = new Date(first.date);
-    startAt.setUTCHours(first.hourStart, 0, 0, 0);
-    const endAt = new Date(last.date);
-    endAt.setUTCHours(last.hourStart + 1, 0, 0, 0);
-
-    const totalHours = units.length;
-    const totalAmount = pricePerHour * totalHours;
+    const {
+      bookingType,
+      units,
+      startAt,
+      endAt,
+      totalAmount,
+      timezone,
+      note,
+    } = buildBookingPlan(req.body, field);
 
     // Transaction with conflict safety on BookingUnit unique index
-    console.log('[POST /bookings] units:', units.length, 'first:', first, 'last:', last, 'totalAmount:', totalAmount);
+    console.log('[POST /bookings] units:', units.length, 'first:', units[0], 'last:', units[units.length - 1], 'totalAmount:', totalAmount);
     const result = await (prisma as any).$transaction(async (tx: any) => {
       const booking = await tx.booking.create({
         data: {
@@ -158,8 +180,21 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
       console.warn('[POST /bookings] conflict:', e?.meta || e?.message || e);
       return res.status(409).json({ error: 'Time conflict. Some slots are already booked.' });
     }
+    const message = e?.message || 'Failed to create booking';
+    const badRequestMessages = new Set([
+      'Field not available for booking',
+      'Invalid field pricing',
+      'dates required for FULL_DAY',
+      'dates required for MULTI_DAY',
+      'date is required',
+      'Selected range exceeds day boundary',
+      'No booking units computed',
+    ]);
+    if (badRequestMessages.has(message)) {
+      return res.status(400).json({ error: message });
+    }
     console.error('[POST /bookings] error:', e);
-    res.status(500).json({ error: e.message || 'Failed to create booking' });
+    res.status(500).json({ error: message });
   }
 });
 
@@ -242,11 +277,16 @@ router.get('/availability', async (req: Request, res: Response) => {
   try {
     const fieldId = req.query.fieldId as string | undefined;
     const date = req.query.date as string | undefined;
+    const excludeBookingId = req.query.excludeBookingId as string | undefined;
     if (!fieldId || !date) return res.status(400).json({ error: 'fieldId and date are required' });
 
     const day = toUtcMidnight(date);
     const units = await (prisma as any).bookingUnit.findMany({
-      where: { fieldId, date: day },
+      where: {
+        fieldId,
+        date: day,
+        ...(excludeBookingId ? { bookingId: { not: excludeBookingId } } : {}),
+      },
       select: { hourStart: true },
     });
     const booked = new Set(units.map((u: any) => u.hourStart));
@@ -256,6 +296,109 @@ router.get('/availability', async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error('[GET /bookings/availability] error:', e);
     res.status(500).json({ error: e.message || 'Failed to fetch availability' });
+  }
+});
+
+// PATCH /bookings/:id/reschedule
+router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const existing = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: {
+        field: {
+          select: {
+            id: true,
+            status: true,
+            pricePerHour: true,
+          },
+        },
+      },
+    });
+    if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (['CANCELLED', 'COMPLETED'].includes(String(existing.status).toUpperCase())) {
+      return res.status(400).json({ error: 'This booking can no longer be rescheduled' });
+    }
+
+    const {
+      bookingType,
+      units,
+      startAt,
+      endAt,
+      totalAmount,
+      timezone,
+      note,
+    } = buildBookingPlan({ ...req.body, fieldId: existing.fieldId }, existing.field);
+
+    const updated = await (prisma as any).$transaction(async (tx: any) => {
+      await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
+      await tx.bookingUnit.createMany({
+        data: units.map((u) => ({
+          bookingId: id,
+          fieldId: existing.fieldId,
+          date: u.date,
+          hourStart: u.hourStart,
+        })),
+        skipDuplicates: false,
+      });
+      return tx.booking.update({
+        where: { id },
+        data: {
+          type: bookingType,
+          startAt,
+          endAt,
+          timezone: timezone !== undefined ? (timezone || null) : existing.timezone,
+          totalAmount,
+          note: note !== undefined ? (note || null) : existing.note,
+          status: 'CONFIRMED',
+        },
+        include: {
+          field: {
+            select: {
+              id: true,
+              name: true,
+              address: true,
+              city: true,
+              images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
+              pricePerHour: true,
+              userId: true,
+            },
+          },
+          _count: { select: { PaymentReceipt: true } },
+        },
+      });
+    });
+
+    const { _count, ...booking } = updated;
+    res.json({
+      ok: true,
+      booking: {
+        ...booking,
+        hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+      },
+    });
+  } catch (e: any) {
+    if (e.code === 'P2002') {
+      return res.status(409).json({ error: 'Time conflict. Some slots are already booked.' });
+    }
+    const message = e?.message || 'Failed to reschedule booking';
+    const badRequestMessages = new Set([
+      'fieldId is required',
+      'Field not found',
+      'Field not available for booking',
+      'Invalid field pricing',
+      'dates required for FULL_DAY',
+      'dates required for MULTI_DAY',
+      'date is required',
+      'Selected range exceeds day boundary',
+      'No booking units computed',
+    ]);
+    if (badRequestMessages.has(message)) {
+      return res.status(400).json({ error: message });
+    }
+    console.error('[PATCH /bookings/:id/reschedule] error:', e);
+    res.status(500).json({ error: message });
   }
 });
 

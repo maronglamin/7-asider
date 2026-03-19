@@ -15,6 +15,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
   const { token } = useAuth() as any;
   const booking = route?.params?.booking;
   const field = booking?.field || {};
+  const canReschedule = !['CANCELLED', 'COMPLETED'].includes(String(booking?.status || '').toUpperCase());
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -147,12 +148,22 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           </View>
         )}
 
-        <TouchableOpacity
-          style={styles.primary}
-          onPress={() => navigation?.navigate('Booking', { fieldId: field?.id })}
-        >
-          <Text style={styles.primaryText}>Book Again</Text>
-        </TouchableOpacity>
+        <View style={styles.actions}>
+          {canReschedule && (
+            <TouchableOpacity
+              style={styles.secondary}
+              onPress={() => navigation?.navigate('Booking', { fieldId: field?.id, mode: 'reschedule', booking })}
+            >
+              <Text style={styles.secondaryText}>Reschedule</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={styles.primary}
+            onPress={() => navigation?.navigate('Booking', { fieldId: field?.id })}
+          >
+            <Text style={styles.primaryText}>Book Again</Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
       <SafeAreaView edges={["bottom"]} />
 
@@ -316,9 +327,25 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '600',
   },
-  primary: {
+  actions: {
     marginHorizontal: 20,
     marginBottom: 24,
+    gap: 12,
+  },
+  secondary: {
+    borderWidth: 1,
+    borderColor: '#16a34a',
+    borderRadius: 8,
+    alignItems: 'center',
+    paddingVertical: 14,
+    backgroundColor: '#ffffff',
+  },
+  secondaryText: {
+    color: '#16a34a',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  primary: {
     backgroundColor: '#16a34a',
     borderRadius: 8,
     alignItems: 'center',
