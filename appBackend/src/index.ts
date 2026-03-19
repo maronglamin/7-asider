@@ -5,6 +5,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import authRoutes from './routes/auth';
 import emailAuthRoutes from './routes/auth.email';
+import appRoutes from './routes/app';
 import fieldKycRoutes from './routes/fieldKyc';
 import bookingRoutes from './routes/bookings';
 import bookingsRoutes from './routes/bookings';
@@ -29,6 +30,7 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ ok: true, service: '7a-side-backend', time: new Date().toISOString() });
 });
 
+app.use('/app', appRoutes);
 app.use('/auth', authRoutes);
 app.use('/auth', emailAuthRoutes);
 app.use('/fields/kyc', fieldKycRoutes);

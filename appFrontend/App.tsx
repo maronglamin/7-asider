@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { Alert, AppState, Linking, Platform } from 'react-native';
+import Constants from 'expo-constants';
 import 'react-native-gesture-handler';
 
 // Import screens
@@ -39,10 +41,39 @@ import { ForgotPasswordScreen } from './src/screens/auth/ForgotPasswordScreen';
 
 // Import components
 import { BottomTabBar } from './src/components/BottomTabBar';
+import { AppReleaseSheet, ReleaseNotice } from './src/components/AppReleaseSheet';
 import { AuthProvider } from './src/context/AuthContext';
+import { apiGet } from './src/api/client';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+
+type ReleaseResponse = ReleaseNotice & {
+  currentVersion?: string | null;
+  currentBuild?: string | null;
+};
+
+function getCurrentReleaseInfo() {
+  const extra = (Constants?.expoConfig?.extra as any) || {};
+  const version = String(
+    Constants?.['nativeAppVersion']
+      || extra.APP_VERSION
+      || Constants?.expoConfig?.version
+      || ''
+  ).trim();
+  const build = String(
+    Constants?.['nativeBuildVersion']
+      || extra.APP_BUILD
+      || ''
+  ).trim();
+
+  return { version, build };
+}
+
+function getReleaseKey(notice: ReleaseNotice | null): string {
+  if (!notice) return '';
+  return `${notice.mode}:${notice.latestVersion || ''}:${notice.latestBuild || ''}`;
+}
 
 function MainTabs() {
   return (
@@ -85,6 +116,81 @@ function MainTabs() {
 }
 
 export default function App() {
+  const [releaseNotice, setReleaseNotice] = useState<ReleaseNotice | null>(null);
+  const checkingReleaseRef = useRef(false);
+  const dismissedReleaseKeyRef = useRef('');
+
+  const releasePath = useMemo(() => {
+    const { version, build } = getCurrentReleaseInfo();
+    const params = [`platform=${encodeURIComponent(Platform.OS)}`];
+    if (version) params.push(`version=${encodeURIComponent(version)}`);
+    if (build) params.push(`build=${encodeURIComponent(build)}`);
+    return `/app/release?${params.join('&')}`;
+  }, []);
+
+  const checkRelease = useCallback(async () => {
+    if (checkingReleaseRef.current) return;
+    checkingReleaseRef.current = true;
+
+    try {
+      const response = await apiGet<ReleaseResponse>(releasePath);
+      if (!response.updateAvailable) {
+        setReleaseNotice(null);
+        return;
+      }
+
+      const nextNotice: ReleaseNotice = {
+        mode: response.mode,
+        updateAvailable: response.updateAvailable,
+        forceUpdate: response.forceUpdate,
+        title: response.title,
+        message: response.message,
+        storeUrl: response.storeUrl,
+        latestVersion: response.latestVersion,
+        latestBuild: response.latestBuild,
+      };
+
+      const releaseKey = getReleaseKey(nextNotice);
+      if (!response.forceUpdate && dismissedReleaseKeyRef.current === releaseKey) return;
+      setReleaseNotice(nextNotice);
+    } catch (error) {
+      console.log('[App] release check skipped', error);
+    } finally {
+      checkingReleaseRef.current = false;
+    }
+  }, [releasePath]);
+
+  useEffect(() => {
+    checkRelease();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkRelease();
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [checkRelease]);
+
+  const handleDismissRelease = useCallback(() => {
+    if (!releaseNotice || releaseNotice.forceUpdate) return;
+    dismissedReleaseKeyRef.current = getReleaseKey(releaseNotice);
+    setReleaseNotice(null);
+  }, [releaseNotice]);
+
+  const handleUpdateRelease = useCallback(async () => {
+    const url = String(releaseNotice?.storeUrl || '').trim();
+    if (!url) {
+      Alert.alert('Update link missing', 'The update link is not configured yet.');
+      return;
+    }
+
+    try {
+      await Linking.openURL(url);
+    } catch (_error) {
+      Alert.alert('Unable to open update link', 'Please try again in a moment.');
+    }
+  }, [releaseNotice?.storeUrl]);
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
@@ -123,6 +229,11 @@ export default function App() {
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           </Stack.Navigator>
         </NavigationContainer>
+        <AppReleaseSheet
+          notice={releaseNotice}
+          onDismiss={handleDismissRelease}
+          onUpdate={handleUpdateRelease}
+        />
       </AuthProvider>
     </SafeAreaProvider>
   );
