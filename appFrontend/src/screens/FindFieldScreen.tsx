@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Search, SlidersHorizontal, ArrowLeft, ChevronRight } from 'lucide-react-native';
-import { apiGet, API_BASE } from '../api/client';
+import { apiGet, resolveMediaUrl } from '../api/client';
 
 type PublicField = {
   id: string;
@@ -118,7 +118,7 @@ export default function FindFieldScreen({ navigation }: Props) {
   }, [query]);
 
   const renderItem = useCallback(({ item }: { item: PublicField }) => {
-    const img = item.images?.[0]?.url ? `${API_BASE}${item.images[0].url}` : undefined;
+    const img = resolveMediaUrl(item.images?.[0]?.url);
     const price = item.pricePerHour != null ? `GMD ${item.pricePerHour}/hour` : '—';
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation?.navigate('Booking', { fieldId: item.id })}>

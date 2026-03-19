@@ -14,7 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, Clock, Minus, Plus } from 'lucide-react-native';
-import { apiGet, apiPostAuth, API_BASE } from '../api/client';
+import { apiGet, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
 type DateItem = {
@@ -271,14 +271,14 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
             {field.images.map((img: any) => (
               <Image
                 key={img.id}
-                source={{ uri: `${API_BASE}${img.url}` }}
+                source={{ uri: resolveMediaUrl(img.url) || undefined }}
                 style={styles.fieldImage}
               />
             ))}
           </ScrollView>
         ) : (
           <Image
-            source={{ uri: (field?.images?.[0]?.url ? `${API_BASE}${field.images[0].url}` : 'https://via.placeholder.com/800x400?text=Field') }}
+            source={{ uri: resolveMediaUrl(field?.images?.[0]?.url) || 'https://via.placeholder.com/800x400?text=Field' }}
             style={styles.fieldImage}
           />
         )}

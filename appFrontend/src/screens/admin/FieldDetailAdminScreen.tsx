@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, CheckCircle2, XCircle, PauseCircle } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, apiPatchAuth, API_BASE } from '../../api/client';
+import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 
 type KycImage = { id: string; url: string; order: number };
 type KycRecord = {
@@ -88,7 +88,7 @@ export default function FieldDetailAdminScreen({ route, navigation }: any) {
     }
   };
 
-  const heroUrl = item?.images?.[0]?.url ? `${API_BASE}${item.images[0].url}` : 'https://via.placeholder.com/1200x600?text=Field';
+  const heroUrl = resolveMediaUrl(item?.images?.[0]?.url) || 'https://via.placeholder.com/1200x600?text=Field';
 
   return (
     <View style={styles.container}>

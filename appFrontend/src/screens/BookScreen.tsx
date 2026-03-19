@@ -17,7 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Map, TrendingUp, Plus, CheckCircle, Upload as UploadIcon } from 'lucide-react-native';
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
-import { apiGetAuth, apiPostMultipartAuth, API_BASE } from '../api/client';
+import { apiGetAuth, apiPostMultipartAuth, resolveMediaUrl } from '../api/client';
 import * as ImagePicker from 'expo-image-picker';
 import { getUploadableImageUri } from '../utils/imageUpload';
 
@@ -115,7 +115,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
             {items.map((b) => {
               const field = b.field;
               const imgRel = field?.images?.[0]?.url;
-              const image = imgRel ? `${API_BASE}${imgRel}` : 'https://via.placeholder.com/400x200?text=Field';
+              const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/400x200?text=Field';
               const lastPlayed = b.startAt || b.createdAt;
               const price = field?.pricePerHour != null ? `GMD ${Number(field.pricePerHour)}/hour` : '—';
               const card = {

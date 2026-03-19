@@ -2,9 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, Image, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, apiPatchAuth } from '../../api/client';
+import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 import { ChevronLeft } from 'lucide-react-native';
 
 type RouteParams = { route: { params: { id: string } }, navigation: any };
@@ -31,8 +30,6 @@ type KycRecord = {
 };
 
 const { width } = Dimensions.get('window');
-const API_BASE = (Constants?.expoConfig?.extra as any)?.API_BASE || 'http://localhost:4000';
-
 export default function FieldDetailScreen({ route, navigation }: any) {
   const { token } = useAuth();
   const id = route.params.id;
@@ -143,7 +140,7 @@ export default function FieldDetailScreen({ route, navigation }: any) {
                 setIndex(newIndex);
               }}
               renderItem={({ item: img }) => (
-                <Image source={{ uri: `${API_BASE}${img.url}` }} style={styles.carouselImage} />
+                <Image source={{ uri: resolveMediaUrl(img.url) || undefined }} style={styles.carouselImage} />
               )}
             />
             {item.images.length > 1 ? (

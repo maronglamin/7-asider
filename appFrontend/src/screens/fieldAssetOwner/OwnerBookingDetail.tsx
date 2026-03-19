@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Mod
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ChevronLeft } from 'lucide-react-native';
-import { API_BASE, apiGetAuth, apiPatchAuth } from '../../api/client';
+import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 export default function OwnerBookingDetail({ navigation, route }: any) {
@@ -11,7 +11,7 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   const booking = route?.params?.booking;
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
-  const image = imgRel ? `${API_BASE}${imgRel}` : 'https://via.placeholder.com/800x400?text=Field';
+  const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
   const [updating, setUpdating] = useState(false);
   const [payUpdating, setPayUpdating] = useState(false);
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -159,10 +159,10 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
                   <TouchableOpacity
                     key={r.id}
                     activeOpacity={0.9}
-                    onPress={() => { setPreviewUri(`${API_BASE}${r.imageUrl}`); setPreviewVisible(true); }}
+                    onPress={() => { setPreviewUri(resolveMediaUrl(r.imageUrl)); setPreviewVisible(true); }}
                   >
                     <Image
-                      source={{ uri: `${API_BASE}${r.imageUrl}` }}
+                      source={{ uri: resolveMediaUrl(r.imageUrl) || undefined }}
                       style={{ width: 140, height: 140, borderRadius: 10, backgroundColor: '#f3f4f6' }}
                     />
                   </TouchableOpacity>

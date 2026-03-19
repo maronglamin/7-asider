@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ChevronLeft } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, apiPatchAuth, API_BASE } from '../../api/client';
+import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 
 export default function OwnerBookingsScreen() {
   const navigation = useNavigation<any>();
@@ -53,7 +53,7 @@ export default function OwnerBookingsScreen() {
   const renderItem = ({ item }: { item: any }) => {
     const field = item.field;
     const imgRel = field?.images?.[0]?.url;
-    const img = imgRel ? `${API_BASE}${imgRel}` : 'https://via.placeholder.com/600x300?text=Field';
+    const img = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/600x300?text=Field';
     const start = new Date(item.startAt);
     const end = new Date(item.endAt);
     const hours = Math.max(1, Math.round((+end - +start) / 3600000));
@@ -97,7 +97,7 @@ export default function OwnerBookingsScreen() {
           {!!item?.hasReceipt && (
             <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               {item.latestReceiptUrl ? (
-                <Image source={{ uri: `${API_BASE}${item.latestReceiptUrl}` }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
+                <Image source={{ uri: resolveMediaUrl(item.latestReceiptUrl) || undefined }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
               ) : null}
               <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Receipt uploaded</Text>

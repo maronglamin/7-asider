@@ -4,7 +4,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, ArrowRight, Building2 } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, API_BASE } from '../../api/client';
+import { apiGetAuth, resolveMediaUrl } from '../../api/client';
 
 type OwnerItem = {
   owner: { id: string; email: string; name?: string | null; fieldCount?: number };
@@ -127,7 +127,7 @@ export default function AssetOwnersScreen({ navigation }: { navigation?: any }) 
     if (!f) return null;
     return (
       <View key={f.id} style={styles.fieldRow}>
-        {f.thumbnail ? <Image source={{ uri: `${API_BASE}${f.thumbnail}` }} style={styles.thumb} /> : <View style={[styles.thumb, { backgroundColor: '#f3f4f6' }]} />}
+        {resolveMediaUrl(f.thumbnail) ? <Image source={{ uri: resolveMediaUrl(f.thumbnail) || undefined }} style={styles.thumb} /> : <View style={[styles.thumb, { backgroundColor: '#f3f4f6' }]} />}
         <View style={{ flex: 1 }}>
           <TouchableOpacity activeOpacity={0.8} onPress={() => navigation?.navigate('FieldDetailAdmin', { id: f.id })}>
             <Text style={styles.fieldName}>{f.name}</Text>

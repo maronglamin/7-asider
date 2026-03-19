@@ -1,5 +1,18 @@
 import Constants from 'expo-constants';
-export const API_BASE = (Constants?.expoConfig?.extra as any)?.API_BASE || 'http://localhost:4000';
+
+// Fallback must be production HTTPS so real device builds never use localhost (which fails off-emulator)
+const PRODUCTION_API_BASE = 'https://seven-aside.phantommetrics.gm';
+export const API_BASE = (Constants?.expoConfig?.extra as any)?.API_BASE || PRODUCTION_API_BASE;
+// Log once so you can confirm in emulator that sign-in/up hit the intended backend
+if (__DEV__) console.log('[API client] API_BASE =', API_BASE);
+
+export function resolveMediaUrl(pathOrUrl?: string | null): string | null {
+  if (!pathOrUrl) return null;
+  const value = String(pathOrUrl).trim();
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `${API_BASE}${value.startsWith('/') ? value : `/${value}`}`;
+}
 
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, { method: 'GET' });

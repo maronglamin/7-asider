@@ -2,9 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Platform, ActivityIndicator, RefreshControl, FlatList, ListRenderItem } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth } from '../../api/client';
+import { apiGetAuth, resolveMediaUrl } from '../../api/client';
 import { ChevronLeft, MapPin, Clock, Plus } from 'lucide-react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -24,8 +23,6 @@ type KycRecord = {
   createdAt?: string;
   updatedAt?: string;
 };
-
-const API_BASE = (Constants?.expoConfig?.extra as any)?.API_BASE || 'http://localhost:4000';
 
 export default function MyFieldsScreen({ navigation }: any) {
   const { token } = useAuth();
@@ -124,8 +121,9 @@ export default function MyFieldsScreen({ navigation }: any) {
         <View style={styles.fieldImageContainer}>
           {(() => {
             const img = (item.images && item.images.length > 0) ? item.images[0] : null;
-            return img ? (
-              <Image source={{ uri: `${API_BASE}${img.url}` }} style={styles.fieldImage} />
+            const imageUri = resolveMediaUrl(img?.url);
+            return imageUri ? (
+              <Image source={{ uri: imageUri }} style={styles.fieldImage} />
             ) : (
               <View style={[styles.fieldImage, styles.imagePlaceholder]} />
             );

@@ -120,7 +120,7 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 12
+        versionCode 19
         versionName "1.0.0"
     }
     signingConfigs {
@@ -152,6 +152,7 @@ android {
         }
     }
     // Generate per-ABI APKs (smaller download per device)
+    // 64-bit only: avoids armeabi-v7a native build failures on this toolchain.
     splits {
         abi {
             enable true

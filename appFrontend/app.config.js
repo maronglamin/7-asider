@@ -2,13 +2,12 @@
 require('dotenv').config();
 
 const productionApiBase = 'https://seven-aside.phantommetrics.gm';
-const defaultApiBase = process.env.NODE_ENV === 'production' ? productionApiBase : 'http://localhost:4000';
-
+// Prefer .env API_BASE so emulator/dev can hit live server; fallback to production URL (never localhost unless you set API_BASE locally)
 module.exports = ({ config }) => ({
   ...config,
   extra: {
     ...(config.extra || {}),
-    API_BASE: process.env.API_BASE || defaultApiBase,
+    API_BASE: process.env.API_BASE || productionApiBase,
   },
   plugins: [
     ...(config.plugins || []),
