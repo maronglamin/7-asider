@@ -28,12 +28,14 @@ import AdminBookingsListScreen from './src/screens/admin/AdminBookingsListScreen
 import UsersScreen from './src/screens/admin/UsersScreen';
 import BanksWalletsScreen from './src/screens/BanksWalletsScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
+import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
 
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
 import { RegisterScreen } from './src/screens/auth/RegisterScreen';
 import { EmailLoginScreen } from './src/screens/auth/EmailLoginScreen';
+import { ForgotPasswordScreen } from './src/screens/auth/ForgotPasswordScreen';
 
 // Import components
 import { BottomTabBar } from './src/components/BottomTabBar';
@@ -97,6 +99,7 @@ export default function App() {
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="Booking" component={BookingScreen} />
@@ -116,6 +119,7 @@ export default function App() {
           <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
           <Stack.Screen name="Users" component={UsersScreen} />
           <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           </Stack.Navigator>
         </NavigationContainer>

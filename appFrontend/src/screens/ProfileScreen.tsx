@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2 } from 'lucide-react-native';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
@@ -37,6 +37,11 @@ export function ProfileScreen() {
       label: 'Banks & Wallets',
       icon: Wallet,
       onPress: () => navigation.navigate('BanksWallets' as never),
+    },
+    {
+      label: 'Change Password',
+      icon: Lock,
+      onPress: () => navigation.navigate('ChangePassword' as never),
     },
     {
       label: 'Delete Account',

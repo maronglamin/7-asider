@@ -17,9 +17,9 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const res = await apiPost<{ token: string; user: { id: string; email: string; name?: string; supadmin?: boolean } }>(
+      const res = await apiPost<{ token: string; user: { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } }>(
         '/auth/login-email',
-        { email, password },
+        { email: email.trim(), password },
       );
       setAuth(res.user, res.token);
       navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
@@ -30,7 +30,7 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
     }
   };
 
-  const canSubmit = email && password;
+  const canSubmit = email.trim() && password;
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -70,6 +70,10 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
           </View>
         </View>
 
+        <TouchableOpacity style={styles.forgotPasswordButton} onPress={() => navigation?.navigate('ForgotPassword')}>
+          <Text style={styles.forgotPasswordText}>Forgot password?</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity
           style={[styles.loginButton, !canSubmit || submitting ? styles.loginButtonDisabled : undefined]}
           onPress={handleLogin}
@@ -93,6 +97,8 @@ const styles = StyleSheet.create({
   inputContainer: { marginBottom: 24 },
   inputLabel: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 8 },
   input: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 16, fontSize: 16, color: '#111827' },
+  forgotPasswordButton: { marginHorizontal: 32, marginTop: -4, marginBottom: 20, alignSelf: 'flex-end' },
+  forgotPasswordText: { color: '#16a34a', fontSize: 14, fontWeight: '600' },
   loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center' },
   loginButtonDisabled: { backgroundColor: '#d1d5db' },
   loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
