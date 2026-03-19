@@ -1,5 +1,16 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, ActivityIndicator, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  TextInput,
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation } from '@react-navigation/native';
@@ -68,91 +79,104 @@ export default function ChangePasswordScreen() {
   return (
     <SafeAreaView style={styles.safeTop} edges={['top']}>
       <StatusBar style="light" backgroundColor="#16a34a" />
-      <View style={styles.headerBar}>
-        <View style={styles.headerTopRow}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            onPress={() => (navigation as any).goBack()}
-            style={styles.backBtn}
-            activeOpacity={0.7}
-          >
-            <ChevronLeft size={20} color="#16a34a" />
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.headerTitle}>Change Password</Text>
-        <Text style={styles.headerSubtitle}>Keep your account secure with a strong new password.</Text>
-      </View>
-
-      <View style={styles.content}>
-        {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="small" color="#16a34a" />
-          </View>
-        ) : provider !== 'email' ? (
-          <View style={styles.card}>
-            <View style={styles.iconWrap}>
-              <Lock size={22} color="#16a34a" />
-            </View>
-            <Text style={styles.cardTitle}>Password change unavailable</Text>
-            <Text style={styles.cardText}>
-              This account uses a social sign-in provider. Password changes are only available for email sign-in accounts.
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.card}>
-            <View style={styles.iconWrap}>
-              <Lock size={22} color="#16a34a" />
-            </View>
-            <Text style={styles.cardTitle}>Update your password</Text>
-            <Text style={styles.cardText}>Use at least 8 characters and avoid reusing your current password.</Text>
-
-            <Text style={styles.inputLabel}>Current password</Text>
-            <TextInput
-              value={oldPassword}
-              onChangeText={setOldPassword}
-              secureTextEntry
-              placeholder="Enter current password"
-              placeholderTextColor="#9ca3af"
-              style={styles.input}
-            />
-
-            <Text style={styles.inputLabel}>New password</Text>
-            <TextInput
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry
-              placeholder="Enter new password"
-              placeholderTextColor="#9ca3af"
-              style={styles.input}
-            />
-
-            <Text style={styles.inputLabel}>Confirm new password</Text>
-            <TextInput
-              value={confirmNewPassword}
-              onChangeText={setConfirmNewPassword}
-              secureTextEntry
-              placeholder="Confirm new password"
-              placeholderTextColor="#9ca3af"
-              style={styles.input}
-            />
-
+      <KeyboardAvoidingView
+        style={styles.keyboardWrap}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.headerBar}>
+          <View style={styles.headerTopRow}>
             <TouchableOpacity
-              onPress={onSubmit}
-              disabled={!canSubmit || saving}
-              style={[styles.submitButton, (!canSubmit || saving) && styles.submitDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Go back"
+              onPress={() => (navigation as any).goBack()}
+              style={styles.backBtn}
+              activeOpacity={0.7}
             >
-              <Text style={styles.submitText}>{saving ? 'Updating...' : 'Update Password'}</Text>
+              <ChevronLeft size={20} color="#16a34a" />
             </TouchableOpacity>
           </View>
-        )}
-      </View>
+          <Text style={styles.headerTitle}>Change Password</Text>
+          <Text style={styles.headerSubtitle}>Keep your account secure with a strong new password.</Text>
+        </View>
+
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="small" color="#16a34a" />
+            </View>
+          ) : provider !== 'email' ? (
+            <View style={styles.card}>
+              <View style={styles.iconWrap}>
+                <Lock size={22} color="#16a34a" />
+              </View>
+              <Text style={styles.cardTitle}>Password change unavailable</Text>
+              <Text style={styles.cardText}>
+                This account uses a social sign-in provider. Password changes are only available for email sign-in accounts.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <View style={styles.iconWrap}>
+                <Lock size={22} color="#16a34a" />
+              </View>
+              <Text style={styles.cardTitle}>Update your password</Text>
+              <Text style={styles.cardText}>Use at least 8 characters and avoid reusing your current password.</Text>
+
+              <Text style={styles.inputLabel}>Current password</Text>
+              <TextInput
+                value={oldPassword}
+                onChangeText={setOldPassword}
+                secureTextEntry
+                placeholder="Enter current password"
+                placeholderTextColor="#9ca3af"
+                style={styles.input}
+              />
+
+              <Text style={styles.inputLabel}>New password</Text>
+              <TextInput
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+                placeholder="Enter new password"
+                placeholderTextColor="#9ca3af"
+                style={styles.input}
+              />
+
+              <Text style={styles.inputLabel}>Confirm new password</Text>
+              <TextInput
+                value={confirmNewPassword}
+                onChangeText={setConfirmNewPassword}
+                secureTextEntry
+                placeholder="Confirm new password"
+                placeholderTextColor="#9ca3af"
+                style={styles.input}
+              />
+
+              <TouchableOpacity
+                onPress={onSubmit}
+                disabled={!canSubmit || saving}
+                style={[styles.submitButton, (!canSubmit || saving) && styles.submitDisabled]}
+              >
+                <Text style={styles.submitText}>{saving ? 'Updating...' : 'Update Password'}</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeTop: { flex: 1, backgroundColor: '#16a34a' },
+  keyboardWrap: {
+    flex: 1,
+  },
   headerBar: {
     backgroundColor: '#16a34a',
     paddingHorizontal: 24,
@@ -186,9 +210,13 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     backgroundColor: '#f9fafb',
+  },
+  contentContainer: {
+    flexGrow: 1,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
+    paddingBottom: 40,
   },
   center: {
     flex: 1,
