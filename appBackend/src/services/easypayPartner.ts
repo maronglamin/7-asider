@@ -114,27 +114,27 @@ export async function createEasypayOrder(
 ) {
   const json = await partnerJson<{
     data?: {
-      order?: {
-        id: string;
-        publicCode: string;
-        status: string;
-        total: number;
-        currency: string;
-        partnerExternalBookingId: string | null;
-      };
+      order?: Record<string, unknown>;
     };
   }>(`/businesses/${encodeURIComponent(businessId)}/orders`, { method: 'POST', body: input });
-  const order = json?.data?.order ?? (json as any)?.data;
-  if (!order || typeof order !== 'object' || !order.id) {
+  const rawOrder =
+    json?.data?.order ?? (json as any)?.data?.order ?? (json as any)?.data;
+  if (!rawOrder || typeof rawOrder !== 'object') {
     throw new Error(`Easypay create order: missing order in response: ${JSON.stringify(json).slice(0, 400)}`);
   }
-  return order as {
-    id: string;
-    publicCode: string;
-    status: string;
-    total: number;
-    currency: string;
-    partnerExternalBookingId: string | null;
+  const ro = rawOrder as Record<string, unknown>;
+  const idVal = ro.id ?? ro.orderId ?? (ro as any).order_id;
+  if (idVal == null || String(idVal).trim() === '') {
+    throw new Error(`Easypay create order: missing order id in response: ${JSON.stringify(json).slice(0, 400)}`);
+  }
+  return {
+    ...ro,
+    id: String(idVal),
+    publicCode: String(ro.publicCode ?? ro.public_code ?? ''),
+    status: String(ro.status ?? ''),
+    total: Number(ro.total ?? 0),
+    currency: String(ro.currency ?? 'GMD'),
+    partnerExternalBookingId: (ro.partnerExternalBookingId ?? ro.partner_external_booking_id ?? null) as string | null,
   };
 }
 
@@ -185,6 +185,71 @@ export async function startEasypayWalletCheckout(
     { method: 'POST', body },
   );
   return json.data;
+}
+
+/** APS step 1 — Easypay internal partner authorize (tries documented path, then compact path on 404). */
+export async function authorizeEasypayApsWallet(
+  businessId: string,
+  orderId: string,
+  body: { gatewayCode: string; payerMobile: string },
+) {
+  const b = encodeURIComponent(businessId);
+  const o = encodeURIComponent(orderId);
+  const paths = [
+    `/businesses/${b}/orders/${o}/payments/aps-wallet/authorize`,
+    `/businesses/${b}/orders/${o}/aps-wallet/authorize`,
+  ];
+  let lastErr: unknown;
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i];
+    try {
+      const json = await partnerJson<any>(path, { method: 'POST', body });
+      const d = json?.data ?? json;
+      return {
+        authState: String(d?.authState ?? d?.auth_state ?? ''),
+        requiresOtp: Boolean(d?.requiresOtp ?? d?.requires_otp),
+        raw: d,
+      };
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.status === 404 && i < paths.length - 1) {
+        console.warn('[easypay] APS authorize 404 on path, retrying alternate:', path);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
+}
+
+/** APS step 2 — Easypay internal partner complete (same path fallback as authorize). */
+export async function completeEasypayApsWallet(
+  businessId: string,
+  orderId: string,
+  body: { gatewayCode: string; authState: string; otp?: string },
+) {
+  const b = encodeURIComponent(businessId);
+  const o = encodeURIComponent(orderId);
+  const paths = [
+    `/businesses/${b}/orders/${o}/payments/aps-wallet/complete`,
+    `/businesses/${b}/orders/${o}/aps-wallet/complete`,
+  ];
+  let lastErr: unknown;
+  for (let i = 0; i < paths.length; i++) {
+    const path = paths[i];
+    try {
+      const json = await partnerJson<any>(path, { method: 'POST', body });
+      return json?.data ?? json;
+    } catch (e: any) {
+      lastErr = e;
+      if (e?.status === 404 && i < paths.length - 1) {
+        console.warn('[easypay] APS complete 404 on path, retrying alternate:', path);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 export async function cancelEasypayOrder(businessId: string, orderId: string) {

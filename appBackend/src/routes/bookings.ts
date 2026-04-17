@@ -5,7 +5,9 @@ import fs from 'fs';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import {
+  authorizeEasypayApsWallet,
   cancelEasypayOrder,
+  completeEasypayApsWallet,
   createEasypayOrder,
   getEasypayPartnerConfig,
   listEasypayWallets,
@@ -58,6 +60,41 @@ function mergeBookingEasypayMetadata(existing: unknown, patch: Record<string, un
       : {};
   meta.easypay = { ...prevEp, ...patch };
   return meta;
+}
+
+/** Persist Easypay order id on booking if missing (same as wallet flow). */
+async function ensureEasypayOrderIdOnBooking(
+  bookingId: string,
+  booking: any,
+  ownerBusinessId: string,
+): Promise<{ orderId: string; latestMeta: unknown }> {
+  const meta = booking.metadata && typeof booking.metadata === 'object' ? booking.metadata : {};
+  let orderId = (meta as any)?.easypay?.orderId as string | undefined;
+  let latestMeta: unknown = booking.metadata;
+  if (orderId && String(orderId).trim() !== '') {
+    return { orderId: String(orderId).trim(), latestMeta };
+  }
+  const amountGmd = Number(booking.totalAmount);
+  if (!Number.isFinite(amountGmd) || amountGmd <= 0) {
+    throw new Error('Invalid booking amount for Easypay order');
+  }
+  const order = await createEasypayOrder(ownerBusinessId, {
+    partnerExternalBookingId: bookingId,
+    amountGmd,
+    currency: booking.currency || 'GMD',
+  });
+  latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
+    businessId: ownerBusinessId,
+    orderId: order.id,
+    orderPublicCode: order.publicCode,
+    orderStatus: order.status,
+    lastPrepareAt: new Date().toISOString(),
+  });
+  await (prisma as any).booking.update({
+    where: { id: bookingId },
+    data: { metadata: latestMeta as any },
+  });
+  return { orderId: order.id, latestMeta };
 }
 
 function resolveBookingType(kind: any): 'HOURLY'|'FULL_DAY'|'MULTI_DAY'|'CUSTOM' {
@@ -703,6 +740,128 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/wallet]', e?.message || e);
     res.status(502).json({ error: e?.message || 'Easypay checkout failed' });
+  }
+});
+
+// POST /bookings/:id/easypay/aps/authorize — APS: payer mobile → authState (+ may require OTP)
+router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!getEasypayPartnerConfig().configured) {
+      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+    }
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const { gatewayCode, payerMobile } = (req.body || {}) as { gatewayCode?: string; payerMobile?: string };
+    if (!gatewayCode || typeof gatewayCode !== 'string') {
+      return res.status(400).json({ error: 'gatewayCode is required' });
+    }
+    const mobile = String(payerMobile || '').replace(/\D/g, '');
+    if (mobile.length < 7) {
+      return res.status(400).json({ error: 'payerMobile must be a valid mobile number (digits).' });
+    }
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: { field: { select: { userId: true } } },
+    });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (String(booking.userId) !== String(userId)) {
+      return res.status(403).json({ error: 'Only the person who booked can pay for this booking.' });
+    }
+    if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
+      return res.status(400).json({ error: 'This booking is already paid.' });
+    }
+    const owner = await prisma.user.findUnique({
+      where: { id: booking.field.userId },
+      select: { easypayBusinessId: true },
+    });
+    if (!owner?.easypayBusinessId) {
+      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+    }
+    let orderId: string;
+    try {
+      const ensured = await ensureEasypayOrderIdOnBooking(id, booking, owner.easypayBusinessId);
+      orderId = ensured.orderId;
+    } catch (e: any) {
+      console.error('[POST /bookings/:id/easypay/aps/authorize] ensure order', e?.message || e);
+      return res.status(502).json({ error: e?.message || 'Could not create Easypay order for this booking.' });
+    }
+    console.log('[POST /bookings/:id/easypay/aps/authorize]', { bookingId: id, orderId, businessId: owner.easypayBusinessId });
+    const out = await authorizeEasypayApsWallet(owner.easypayBusinessId, orderId, {
+      gatewayCode,
+      payerMobile: mobile,
+    });
+    if (!out.authState) {
+      return res.status(502).json({ error: 'Easypay APS authorize did not return authState.' });
+    }
+    res.json({
+      ok: true,
+      authState: out.authState,
+      requiresOtp: out.requiresOtp,
+    });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/easypay/aps/authorize]', e?.message || e);
+    res.status(502).json({ error: e?.message || 'Easypay APS authorize failed' });
+  }
+});
+
+// POST /bookings/:id/easypay/aps/complete — APS: submit OTP (if required) and complete payment
+router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!getEasypayPartnerConfig().configured) {
+      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+    }
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const { gatewayCode, authState, otp } = (req.body || {}) as {
+      gatewayCode?: string;
+      authState?: string;
+      otp?: string;
+    };
+    if (!gatewayCode || typeof gatewayCode !== 'string') {
+      return res.status(400).json({ error: 'gatewayCode is required' });
+    }
+    if (!authState || typeof authState !== 'string') {
+      return res.status(400).json({ error: 'authState is required (from authorize step).' });
+    }
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: { field: { select: { userId: true } } },
+    });
+    if (!booking) return res.status(404).json({ error: 'Booking not found.' });
+    if (String(booking.userId) !== String(userId)) {
+      return res.status(403).json({ error: 'Only the person who booked can pay for this booking.' });
+    }
+    if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
+      return res.status(400).json({ error: 'This booking is already paid.' });
+    }
+    const owner = await prisma.user.findUnique({
+      where: { id: booking.field.userId },
+      select: { easypayBusinessId: true },
+    });
+    if (!owner?.easypayBusinessId) {
+      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+    }
+    let orderId: string;
+    let latestMetaForMerge: unknown;
+    try {
+      const ensured = await ensureEasypayOrderIdOnBooking(id, booking, owner.easypayBusinessId);
+      orderId = ensured.orderId;
+      latestMetaForMerge = ensured.latestMeta;
+    } catch (e: any) {
+      console.error('[POST /bookings/:id/easypay/aps/complete] ensure order', e?.message || e);
+      return res.status(502).json({ error: e?.message || 'Could not create Easypay order for this booking.' });
+    }
+    const body: { gatewayCode: string; authState: string; otp?: string } = { gatewayCode, authState };
+    if (otp != null && String(otp).trim() !== '') body.otp = String(otp).trim();
+    const data = await completeEasypayApsWallet(owner.easypayBusinessId, orderId, body);
+    const merged = mergeBookingEasypayMetadata(latestMetaForMerge, {
+      lastApsCompleteAt: new Date().toISOString(),
+    });
+    await (prisma as any).booking.update({ where: { id }, data: { metadata: merged as any } });
+    res.json({ ok: true, data });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/easypay/aps/complete]', e?.message || e);
+    res.status(502).json({ error: e?.message || 'Easypay APS complete failed' });
   }
 });
 

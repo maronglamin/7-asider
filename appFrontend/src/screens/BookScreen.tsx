@@ -12,6 +12,7 @@ import {
   Linking,
   ActivityIndicator,
   TextInput,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -26,6 +27,8 @@ interface BookScreenProps {
 
 export function BookScreen({ navigation }: BookScreenProps) {
   const { token } = useAuth();
+  const { height: windowHeight } = useWindowDimensions();
+  const easypaySheetMaxHeight = Math.round(windowHeight * 0.85);
   const [items, setItems] = useState<any[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,6 +52,16 @@ export function BookScreen({ navigation }: BookScreenProps) {
     { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[]
   >([]);
   const [payerPhone, setPayerPhone] = useState('');
+  /** Pull-to-refresh inside Easypay sheet (re-fetches prepare / wallet list). */
+  const [paySheetRefreshing, setPaySheetRefreshing] = useState(false);
+  /** Easypay APS (mobile → authorize → OTP → complete); Wave/Yonna use wallet + launchUrl only. */
+  const [apsGateway, setApsGateway] = useState<{ code: string; name: string } | null>(null);
+  const [apsStep, setApsStep] = useState<'mobile' | 'otp'>('mobile');
+  const [apsMobile, setApsMobile] = useState('');
+  const [apsAuthState, setApsAuthState] = useState('');
+  const [apsOtp, setApsOtp] = useState('');
+  const [apsRequiresOtp, setApsRequiresOtp] = useState(false);
+  const [apsLoading, setApsLoading] = useState(false);
 
   const load = async (reset: boolean, opts?: { force?: boolean }) => {
     if (!token || (!opts?.force && loading)) return;
@@ -74,31 +87,153 @@ export function BookScreen({ navigation }: BookScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const openEasypayPay = async (b: any) => {
-    setPayBooking(b);
-    setPrepareError(null);
-    setPrepareHint(null);
-    setEasypayOrder(null);
-    setEasypayWallets([]);
-    setPayerPhone('');
-    setPayVisible(true);
+  function isApsCheckoutAdapter(adapter: string | undefined | null) {
+    return String(adapter || '').toLowerCase().includes('aps');
+  }
+
+  const clearApsCheckout = () => {
+    setApsGateway(null);
+    setApsStep('mobile');
+    setApsMobile('');
+    setApsAuthState('');
+    setApsOtp('');
+    setApsRequiresOtp(false);
+    setApsLoading(false);
+  };
+
+  type PrepareRes = {
+    ok: boolean;
+    order: { id: string; publicCode: string; status: string; total: number; currency: string };
+    wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
+    prepareHint?: string;
+  };
+
+  /** Re-calls POST …/easypay/prepare (idempotent order + fresh wallet list from Easypay). */
+  const prepareEasypayCheckout = async (bookingId: string, mode: 'open' | 'refresh') => {
     if (!token) return;
+    if (mode === 'refresh') setPaySheetRefreshing(true);
+    else setPayPrepareLoading(true);
+    if (mode === 'open') {
+      setPrepareError(null);
+      setPrepareHint(null);
+      setEasypayOrder(null);
+      setEasypayWallets([]);
+    } else {
+      setPrepareError(null);
+    }
     try {
-      setPayPrepareLoading(true);
-      const res = await apiPostAuth<{
-        ok: boolean;
-        order: { id: string; publicCode: string; status: string; total: number; currency: string };
-        wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
-        prepareHint?: string;
-      }>(`/bookings/${b.id}/easypay/prepare`, {}, token as string);
+      const res = await apiPostAuth<PrepareRes>(`/bookings/${bookingId}/easypay/prepare`, {}, token as string);
+      setPrepareError(null);
+      clearApsCheckout();
       setEasypayOrder(res.order);
       setEasypayWallets(Array.isArray(res.wallets) ? res.wallets : []);
       setPrepareHint(typeof res.prepareHint === 'string' ? res.prepareHint : null);
     } catch (e: any) {
-      setPrepareError(e?.message || 'Could not start Easypay checkout.');
+      const msg = e?.message || 'Could not load Easypay checkout.';
+      if (mode === 'refresh') {
+        setPrepareError(msg);
+      } else {
+        setPrepareError(msg);
+        setEasypayOrder(null);
+        setEasypayWallets([]);
+      }
     } finally {
-      setPayPrepareLoading(false);
+      if (mode === 'refresh') setPaySheetRefreshing(false);
+      else setPayPrepareLoading(false);
     }
+  };
+
+  const openEasypayPay = async (b: any) => {
+    if (!token) {
+      Alert.alert('Sign in required', 'Please sign in to pay for this booking.');
+      return;
+    }
+    clearApsCheckout();
+    setPayBooking(b);
+    setPayerPhone('');
+    setPayVisible(true);
+    await prepareEasypayCheckout(b.id, 'open');
+  };
+
+  const onSelectWallet = (w: { code: string; name: string; checkoutAdapter: string }) => {
+    if (isApsCheckoutAdapter(w.checkoutAdapter)) {
+      setApsGateway({ code: w.code, name: w.name });
+      setApsStep('mobile');
+      setApsMobile('');
+      setApsAuthState('');
+      setApsOtp('');
+      setApsRequiresOtp(false);
+      return;
+    }
+    void startWallet(w.code);
+  };
+
+  const runApsAuthorize = async () => {
+    if (!payBooking || !token || !apsGateway) return;
+    if (!payBooking.id) {
+      Alert.alert('Payment', 'Missing booking id. Close this sheet and tap Pay with Easypay again.');
+      return;
+    }
+    const digits = apsMobile.replace(/\D/g, '');
+    if (digits.length < 7) {
+      Alert.alert('Mobile number', 'Enter a valid mobile number registered with APS (digits only).');
+      return;
+    }
+    setApsLoading(true);
+    try {
+      const res = await apiPostAuth<{ ok: boolean; authState: string; requiresOtp: boolean }>(
+        `/bookings/${payBooking.id}/easypay/aps/authorize`,
+        { gatewayCode: apsGateway.code, payerMobile: digits },
+        token as string,
+      );
+      setApsAuthState(res.authState);
+      setApsRequiresOtp(!!res.requiresOtp);
+      if (res.requiresOtp) {
+        setApsStep('otp');
+      } else {
+        await runApsCompleteWith(res.authState, undefined);
+      }
+    } catch (e: any) {
+      Alert.alert('APS', e?.message || 'Could not start APS payment.');
+    } finally {
+      setApsLoading(false);
+    }
+  };
+
+  const runApsCompleteWith = async (authState: string, otp: string | undefined) => {
+    if (!payBooking || !token || !apsGateway) return;
+    setApsLoading(true);
+    try {
+      const body: { gatewayCode: string; authState: string; otp?: string } = {
+        gatewayCode: apsGateway.code,
+        authState,
+      };
+      if (otp != null && String(otp).trim() !== '') body.otp = String(otp).trim();
+      await apiPostAuth(`/bookings/${payBooking.id}/easypay/aps/complete`, body, token as string);
+      Alert.alert(
+        'Payment submitted',
+        'If Easypay confirms the payment, this booking will show Paid shortly. Pull to refresh on Book if needed.',
+      );
+      setPayVisible(false);
+      clearApsCheckout();
+      await load(true, { force: true });
+    } catch (e: any) {
+      Alert.alert('APS', e?.message || 'Could not complete payment.');
+    } finally {
+      setApsLoading(false);
+    }
+  };
+
+  const runApsCompleteTap = async () => {
+    if (!apsAuthState) {
+      Alert.alert('APS', 'Authorize first with your mobile number.');
+      return;
+    }
+    if (apsRequiresOtp && !apsOtp.trim()) {
+      Alert.alert('OTP required', 'Enter the code sent to your phone.');
+      return;
+    }
+    await runApsCompleteWith(apsAuthState, apsOtp.trim() || undefined);
   };
 
   const startWallet = async (gatewayCode: string) => {
@@ -112,7 +247,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
         launchUrl: string;
         checkoutAdapter?: string;
       }>(`/bookings/${payBooking.id}/easypay/wallet`, body, token as string);
-      const url = res.launchUrl;
+      const url = String(res.launchUrl || '').trim();
       if (url && (await Linking.canOpenURL(url))) {
         await Linking.openURL(url);
         Alert.alert(
@@ -259,18 +394,52 @@ export function BookScreen({ navigation }: BookScreenProps) {
           </View>
         </View>
       </Modal>
-      {/* Easypay checkout sheet */}
-      <Modal visible={payVisible} animationType="slide" transparent>
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setPayVisible(false)} />
-          <View style={[styles.sheetContainer, { maxHeight: '92%' }]}>
+      {/* Easypay checkout sheet — use px maxHeight so Android does not collapse % + flex:1 children */}
+      <Modal
+        visible={payVisible}
+        animationType="slide"
+        transparent
+        statusBarTranslucent
+        onRequestClose={() => setPayVisible(false)}
+      >
+        <View style={styles.sheetOverlay} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => {
+              setPayVisible(false);
+              clearApsCheckout();
+            }}
+          />
+          <View
+            style={[
+              styles.sheetContainer,
+              styles.easypaySheetContainer,
+              { maxHeight: easypaySheetMaxHeight, height: easypaySheetMaxHeight },
+            ]}
+          >
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Pay with Easypay</Text>
             <Text style={styles.sheetSubtitle}>
-              Pay securely through Easypay. Choose a wallet; you will be sent to complete payment. Your booking shows Paid
-              when Easypay confirms the transfer.
+              Easypay handles payment: Wave/Yonna may open in your browser; APS is completed here with your mobile number
+              and OTP. Your booking shows Paid when Easypay confirms. Pull down to refresh methods if the list is empty.
             </Text>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 16 }}>
+            <ScrollView
+              style={styles.easypaySheetScroll}
+              contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24, flexGrow: 1 }}
+              refreshControl={
+                <RefreshControl
+                  refreshing={paySheetRefreshing}
+                  onRefresh={() => {
+                    if (payBooking?.id && token && !payPrepareLoading) {
+                      void prepareEasypayCheckout(payBooking.id, 'refresh');
+                    }
+                  }}
+                  colors={['#16a34a']}
+                  tintColor="#16a34a"
+                />
+              }
+            >
               {payPrepareLoading ? (
                 <View style={{ alignItems: 'center', paddingVertical: 24, gap: 12 }}>
                   <ActivityIndicator size="large" color="#16a34a" />
@@ -293,54 +462,127 @@ export function BookScreen({ navigation }: BookScreenProps) {
                     </Text>
                     <Text style={styles.payRef}>Order {easypayOrder.publicCode}</Text>
                   </View>
-                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 8, marginTop: 4 }}>
-                    Payment method
-                  </Text>
-                  {(easypayWallets || []).length === 0 ? (
-                    <View style={{ gap: 12 }}>
-                      <Text style={{ color: '#6b7280', lineHeight: 20 }}>
-                        No payment methods were returned for this checkout. This usually means no gateways are enabled for
-                        this merchant in Easypay, or the Easypay API response shape differs from what we expect.
-                      </Text>
-                      {!!prepareHint && (
-                        <Text style={{ color: '#374151', fontSize: 13, lineHeight: 19 }}>{prepareHint}</Text>
-                      )}
-                      {!!payBooking && (
-                        <TouchableOpacity style={styles.sheetPrimary} onPress={() => void openEasypayPay(payBooking)}>
-                          <Text style={styles.sheetPrimaryText}>Try again</Text>
-                        </TouchableOpacity>
+                  {apsGateway ? (
+                    <View style={{ gap: 14, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => clearApsCheckout()}
+                        disabled={apsLoading}
+                        style={{ alignSelf: 'flex-start', paddingVertical: 6 }}
+                      >
+                        <Text style={{ color: '#16a34a', fontWeight: '700', fontSize: 15 }}>← All payment methods</Text>
+                      </TouchableOpacity>
+                      <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827' }}>{apsGateway.name} (APS)</Text>
+                      {apsStep === 'mobile' ? (
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
+                            Enter the mobile number linked to your APS wallet. Easypay will send or confirm an OTP where
+                            required.
+                          </Text>
+                          <TextInput
+                            value={apsMobile}
+                            onChangeText={setApsMobile}
+                            placeholder="Mobile number (digits)"
+                            keyboardType="phone-pad"
+                            style={styles.phoneInput}
+                            placeholderTextColor="#9ca3af"
+                            editable={!apsLoading}
+                          />
+                          <TouchableOpacity
+                            style={[styles.sheetPrimary, apsLoading && { opacity: 0.65 }]}
+                            disabled={apsLoading}
+                            onPress={() => void runApsAuthorize()}
+                          >
+                            <Text style={styles.sheetPrimaryText}>{apsLoading ? 'Please wait…' : 'Continue'}</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={{ gap: 10 }}>
+                          <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
+                            Enter the OTP from APS / your bank SMS, then confirm payment.
+                          </Text>
+                          <TextInput
+                            value={apsOtp}
+                            onChangeText={setApsOtp}
+                            placeholder="OTP code"
+                            keyboardType="number-pad"
+                            style={styles.phoneInput}
+                            placeholderTextColor="#9ca3af"
+                            editable={!apsLoading}
+                          />
+                          <TouchableOpacity
+                            style={[styles.sheetPrimary, apsLoading && { opacity: 0.65 }]}
+                            disabled={apsLoading}
+                            onPress={() => void runApsCompleteTap()}
+                          >
+                            <Text style={styles.sheetPrimaryText}>{apsLoading ? 'Please wait…' : 'Confirm payment'}</Text>
+                          </TouchableOpacity>
+                        </View>
                       )}
                     </View>
                   ) : (
-                    <View style={{ gap: 10 }}>
-                      {easypayWallets.map((w) => (
-                        <TouchableOpacity
-                          key={w.gatewayId || w.code}
-                          style={[styles.walletRow, payWalletLoading && { opacity: 0.6 }]}
-                          disabled={payWalletLoading}
-                          onPress={() => void startWallet(w.code)}
-                        >
-                          <Text style={styles.walletName}>{w.name}</Text>
-                          <Text style={styles.walletMeta}>{w.checkoutAdapter}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                    <>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 8, marginTop: 4 }}>
+                        Payment method
+                      </Text>
+                      {(easypayWallets || []).length === 0 ? (
+                        <View style={{ gap: 12 }}>
+                          <Text style={{ color: '#6b7280', lineHeight: 20 }}>
+                            No payment methods were returned for this checkout. This usually means no gateways are enabled
+                            for this merchant in Easypay, or the Easypay API response shape differs from what we expect.
+                          </Text>
+                          {!!prepareHint && (
+                            <Text style={{ color: '#374151', fontSize: 13, lineHeight: 19 }}>{prepareHint}</Text>
+                          )}
+                          {!!payBooking?.id && (
+                            <TouchableOpacity
+                              style={styles.sheetPrimary}
+                              onPress={() => void prepareEasypayCheckout(payBooking.id, 'refresh')}
+                              disabled={paySheetRefreshing || payPrepareLoading}
+                            >
+                              <Text style={styles.sheetPrimaryText}>
+                                {paySheetRefreshing || payPrepareLoading ? 'Refreshing…' : 'Refresh payment methods'}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ) : (
+                        <View style={{ gap: 10 }}>
+                          {easypayWallets.map((w) => (
+                            <TouchableOpacity
+                              key={w.gatewayId || w.code}
+                              style={[styles.walletRow, (payWalletLoading || apsLoading) && { opacity: 0.6 }]}
+                              disabled={payWalletLoading || apsLoading}
+                              onPress={() => onSelectWallet(w)}
+                            >
+                              <Text style={styles.walletName}>{w.name}</Text>
+                              <Text style={styles.walletMeta}>
+                                {isApsCheckoutAdapter(w.checkoutAdapter) ? 'APS — pay in app' : w.checkoutAdapter}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                      {(easypayWallets || []).some((w) => !isApsCheckoutAdapter(w.checkoutAdapter)) ? (
+                        <>
+                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 14, marginBottom: 6 }}>
+                            Optional: payer phone before opening Wave/Yonna (e.g. Yonna)
+                          </Text>
+                          <TextInput
+                            value={payerPhone}
+                            onChangeText={setPayerPhone}
+                            placeholder="e.g. 7XXXXXXXX"
+                            keyboardType="phone-pad"
+                            style={styles.phoneInput}
+                            placeholderTextColor="#9ca3af"
+                          />
+                        </>
+                      ) : null}
+                    </>
                   )}
-                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 14, marginBottom: 6 }}>
-                    Optional: payer phone (some gateways, e.g. Yonna)
-                  </Text>
-                  <TextInput
-                    value={payerPhone}
-                    onChangeText={setPayerPhone}
-                    placeholder="e.g. 7XXXXXXXX"
-                    keyboardType="phone-pad"
-                    style={styles.phoneInput}
-                    placeholderTextColor="#9ca3af"
-                  />
                 </>
               ) : null}
             </ScrollView>
-            <SafeAreaView edges={['bottom']} />
+            <SafeAreaView edges={['bottom']} style={{ backgroundColor: '#ffffff' }} />
           </View>
         </View>
       </Modal>
@@ -532,6 +774,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    zIndex: 0,
+  },
+  easypaySheetContainer: {
+    zIndex: 1,
+    elevation: 24,
+    width: '100%',
+  },
+  easypaySheetScroll: {
+    flex: 1,
+    minHeight: 120,
   },
   sheetContainer: {
     backgroundColor: '#ffffff',
