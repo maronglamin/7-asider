@@ -37,6 +37,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [payPrepareLoading, setPayPrepareLoading] = useState(false);
   const [payWalletLoading, setPayWalletLoading] = useState(false);
   const [prepareError, setPrepareError] = useState<string | null>(null);
+  const [prepareHint, setPrepareHint] = useState<string | null>(null);
   const [easypayOrder, setEasypayOrder] = useState<{
     id: string;
     publicCode: string;
@@ -76,6 +77,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const openEasypayPay = async (b: any) => {
     setPayBooking(b);
     setPrepareError(null);
+    setPrepareHint(null);
     setEasypayOrder(null);
     setEasypayWallets([]);
     setPayerPhone('');
@@ -87,9 +89,11 @@ export function BookScreen({ navigation }: BookScreenProps) {
         ok: boolean;
         order: { id: string; publicCode: string; status: string; total: number; currency: string };
         wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
+        prepareHint?: string;
       }>(`/bookings/${b.id}/easypay/prepare`, {}, token as string);
       setEasypayOrder(res.order);
-      setEasypayWallets(res.wallets || []);
+      setEasypayWallets(Array.isArray(res.wallets) ? res.wallets : []);
+      setPrepareHint(typeof res.prepareHint === 'string' ? res.prepareHint : null);
     } catch (e: any) {
       setPrepareError(e?.message || 'Could not start Easypay checkout.');
     } finally {
@@ -293,10 +297,20 @@ export function BookScreen({ navigation }: BookScreenProps) {
                     Payment method
                   </Text>
                   {(easypayWallets || []).length === 0 ? (
-                    <Text style={{ color: '#6b7280' }}>
-                      No wallets are available on Easypay for this field yet. Ask the field owner or Easypay operator to
-                      enable Wave, Yonna, or APS.
-                    </Text>
+                    <View style={{ gap: 12 }}>
+                      <Text style={{ color: '#6b7280', lineHeight: 20 }}>
+                        No payment methods were returned for this checkout. This usually means no gateways are enabled for
+                        this merchant in Easypay, or the Easypay API response shape differs from what we expect.
+                      </Text>
+                      {!!prepareHint && (
+                        <Text style={{ color: '#374151', fontSize: 13, lineHeight: 19 }}>{prepareHint}</Text>
+                      )}
+                      {!!payBooking && (
+                        <TouchableOpacity style={styles.sheetPrimary} onPress={() => void openEasypayPay(payBooking)}>
+                          <Text style={styles.sheetPrimaryText}>Try again</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   ) : (
                     <View style={{ gap: 10 }}>
                       {easypayWallets.map((w) => (

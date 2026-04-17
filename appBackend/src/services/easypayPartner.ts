@@ -28,6 +28,7 @@ async function partnerJson<T>(
   const method = init.method || 'GET';
   const headers: Record<string, string> = {
     Authorization: `Bearer ${apiSecret}`,
+    Accept: 'application/json',
   };
   let body: string | undefined;
   if (init.body !== undefined) {
@@ -49,6 +50,43 @@ async function partnerJson<T>(
     throw err;
   }
   return json as T;
+}
+
+/** Easypay may nest wallets under different keys depending on API version. */
+function extractWalletsPayload(json: any): unknown[] {
+  const d = json?.data;
+  if (!d) return [];
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d.wallets)) return d.wallets;
+  if (Array.isArray(d.checkoutWallets)) return d.checkoutWallets;
+  if (Array.isArray(d.gatewayWallets)) return d.gatewayWallets;
+  if (Array.isArray(d.items)) return d.items;
+  if (d.data && Array.isArray((d.data as any).wallets)) return (d.data as any).wallets;
+  return [];
+}
+
+export type NormalizedCheckoutWallet = {
+  gatewayId: string;
+  code: string;
+  name: string;
+  checkoutAdapter: string;
+  hasStoredPayerPhone: boolean;
+};
+
+function normalizeWalletRow(raw: any): NormalizedCheckoutWallet | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const code = String(raw.code ?? raw.gatewayCode ?? raw.gateway?.code ?? '').trim();
+  if (!code) return null;
+  const gatewayId = String(raw.gatewayId ?? raw.id ?? raw.gateway?.id ?? code).trim() || code;
+  const name = String(raw.name ?? raw.label ?? raw.title ?? raw.displayName ?? code).trim() || code;
+  const checkoutAdapter = String(raw.checkoutAdapter ?? raw.adapter ?? raw.type ?? '').trim();
+  return {
+    gatewayId,
+    code,
+    name,
+    checkoutAdapter,
+    hasStoredPayerPhone: Boolean(raw.hasStoredPayerPhone),
+  };
 }
 
 export async function provisionEasypayTenant(input: {
@@ -74,32 +112,51 @@ export async function createEasypayOrder(
   businessId: string,
   input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
 ) {
-  const json = await partnerJson<{ data: { order: {
+  const json = await partnerJson<{
+    data?: {
+      order?: {
+        id: string;
+        publicCode: string;
+        status: string;
+        total: number;
+        currency: string;
+        partnerExternalBookingId: string | null;
+      };
+    };
+  }>(`/businesses/${encodeURIComponent(businessId)}/orders`, { method: 'POST', body: input });
+  const order = json?.data?.order ?? (json as any)?.data;
+  if (!order || typeof order !== 'object' || !order.id) {
+    throw new Error(`Easypay create order: missing order in response: ${JSON.stringify(json).slice(0, 400)}`);
+  }
+  return order as {
     id: string;
     publicCode: string;
     status: string;
     total: number;
     currency: string;
     partnerExternalBookingId: string | null;
-  } } }>(
-    `/businesses/${encodeURIComponent(businessId)}/orders`,
-    { method: 'POST', body: input },
-  );
-  return json.data.order;
+  };
 }
 
-export async function listEasypayWallets(businessId: string, orderId: string) {
-  const json = await partnerJson<{ data: { wallets: Array<{
-    gatewayId: string;
-    code: string;
-    name: string;
-    checkoutAdapter: string;
-    hasStoredPayerPhone: boolean;
-  }> } }>(
-    `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/checkout-wallets`,
-    { method: 'GET' },
-  );
-  return json.data.wallets;
+export async function listEasypayWallets(businessId: string, orderId: string): Promise<NormalizedCheckoutWallet[]> {
+  const path = `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/checkout-wallets`;
+  const json = await partnerJson<Record<string, unknown>>(path, { method: 'GET' });
+  const rawList = extractWalletsPayload(json);
+  const normalized = rawList
+    .map((w) => normalizeWalletRow(w))
+    .filter((w): w is NormalizedCheckoutWallet => w != null);
+  if (normalized.length === 0 && rawList.length === 0) {
+    const keys = json && typeof json === 'object' && json.data && typeof json.data === 'object'
+      ? Object.keys(json.data as object).join(',')
+      : '';
+    console.warn(
+      '[easypay] checkout-wallets returned no list or unknown shape. data keys:',
+      keys || '(none)',
+      'top-level keys:',
+      json && typeof json === 'object' ? Object.keys(json).join(',') : '',
+    );
+  }
+  return normalized;
 }
 
 export async function startEasypayWalletCheckout(

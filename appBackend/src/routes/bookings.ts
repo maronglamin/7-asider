@@ -619,6 +619,12 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
         currency: order.currency,
       },
       wallets,
+      ...(wallets.length === 0
+        ? {
+            prepareHint:
+              'Easypay returned no checkout wallets for this order. On Easypay, attach and enable payment gateways (Wave, Yonna, APS, etc.) for this merchant business.',
+          }
+        : {}),
     });
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/prepare]', e?.message || e);
