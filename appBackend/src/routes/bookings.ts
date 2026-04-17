@@ -597,6 +597,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       currency: booking.currency || 'GMD',
     });
     const wallets = await listEasypayWallets(owner.easypayBusinessId, order.id);
+    console.log('[easypay/prepare] ok', { bookingId: id, orderId: order.id, walletCount: wallets.length });
     const merged = mergeBookingEasypayMetadata(booking.metadata, {
       businessId: owner.easypayBusinessId,
       orderId: order.id,

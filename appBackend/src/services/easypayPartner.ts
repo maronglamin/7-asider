@@ -145,6 +145,16 @@ export async function listEasypayWallets(businessId: string, orderId: string): P
   const normalized = rawList
     .map((w) => normalizeWalletRow(w))
     .filter((w): w is NormalizedCheckoutWallet => w != null);
+  if (normalized.length === 0 && rawList.length > 0) {
+    const first = rawList[0];
+    const keys = first && typeof first === 'object' ? Object.keys(first as object).join(',') : '';
+    console.warn(
+      '[easypay] checkout-wallets returned',
+      rawList.length,
+      'row(s) but none had a usable gateway code. First object keys:',
+      keys || '(n/a)',
+    );
+  }
   if (normalized.length === 0 && rawList.length === 0) {
     const keys = json && typeof json === 'object' && json.data && typeof json.data === 'object'
       ? Object.keys(json.data as object).join(',')
