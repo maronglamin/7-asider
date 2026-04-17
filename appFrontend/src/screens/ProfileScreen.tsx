@@ -8,7 +8,7 @@ import {
   Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock } from 'lucide-react-native';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2 } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
@@ -28,6 +28,9 @@ export function ProfileScreen() {
     },
     ...(user?.supadmin ? [{ label: 'Super Admin', icon: ShieldCheck, onPress: () => navigation.navigate('SuperAdmin' as never) }] : []),
     ...(hasKyc ? [{ label: 'Bookings', icon: Wallet, onPress: () => navigation.navigate('OwnerBookings' as never) }] : []),
+    ...(hasKyc
+      ? [{ label: 'Link To EasyPay', icon: Link2, onPress: () => navigation.navigate('LinkEasypay' as never) }]
+      : []),
     {
       label: 'Profile Information',
       icon: Edit,

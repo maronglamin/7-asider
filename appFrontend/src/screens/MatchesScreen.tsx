@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import { Plus } from 'lucide-react-native';
 import { MatchCard } from '../components/MatchCard';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function MatchesScreen() {
@@ -26,10 +26,15 @@ export function MatchesScreen() {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState<boolean>(false);
   const navigation = useNavigation<any>();
+  const skipNextFocusRefreshRef = useRef(true);
 
-  const reload = React.useCallback(async () => {
-    if (!token) return;
-    setRefreshing(true);
+  const loadBookings = useCallback(async (showInitialLoader = false) => {
+    if (!token) {
+      setBookings([]);
+      setNextCursor(null);
+      return;
+    }
+    if (showInitialLoader) setLoading(true);
     try {
       const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20`, token);
       setBookings(res.items || []);
@@ -37,32 +42,33 @@ export function MatchesScreen() {
     } catch (_e) {
       setBookings([]);
     } finally {
-      setRefreshing(false);
+      if (showInitialLoader) setLoading(false);
     }
   }, [token]);
 
+  const reload = useCallback(async () => {
+    if (!token) return;
+    setRefreshing(true);
+    try {
+      await loadBookings(false);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadBookings, token]);
+
   useEffect(() => {
-    let mounted = true;
-    (async () => {
-      if (!token) return;
-      setLoading(true);
-      try {
-        // Similar to BookScreen: fetch user's bookings
-        const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20`, token);
-        if (mounted) {
-          setBookings(res.items || []);
-          setNextCursor(res.nextCursor || null);
-        }
-      } catch (_e) {
-        if (mounted) setBookings([]);
-      } finally {
-        if (mounted) setLoading(false);
+    loadBookings(true);
+  }, [loadBookings]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (skipNextFocusRefreshRef.current) {
+        skipNextFocusRefreshRef.current = false;
+        return;
       }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, [token]);
+      reload();
+    }, [reload])
+  );
 
   const { upcomingMatches, pastMatches } = useMemo(() => {
     const now = Date.now();
@@ -156,13 +162,18 @@ export function MatchesScreen() {
           const paddingToBottom = 200;
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
           const closeToBottom = contentOffset.y + layoutMeasurement.height >= contentSize.height - paddingToBottom;
-          if (closeToBottom && nextCursor && !loading && !loadingMore) {
+          if (closeToBottom && nextCursor && token && !loading && !loadingMore) {
             setLoadingMore(true);
             (async () => {
               try {
-                const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/mine?limit=20&cursor=${encodeURIComponent(nextCursor)}`, token as any);
+                const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(
+                  `/bookings/mine?limit=20&cursor=${encodeURIComponent(nextCursor)}`,
+                  token
+                );
                 setBookings(prev => [...prev, ...(res.items || [])]);
                 setNextCursor(res.nextCursor || null);
+              } catch (_e) {
+                // Avoid unhandled rejection → RN JavascriptException in crash reports
               } finally {
                 setLoadingMore(false);
               }

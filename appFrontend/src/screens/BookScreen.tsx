@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,20 +6,19 @@ import {
   ScrollView,
   RefreshControl,
   TouchableOpacity,
-  Image,
-  TextInput,
   Platform,
   Modal,
   Alert,
+  Linking,
+  ActivityIndicator,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Map, TrendingUp, Plus, CheckCircle, Upload as UploadIcon } from 'lucide-react-native';
+import { Map, TrendingUp, Plus, CheckCircle, CreditCard } from 'lucide-react-native';
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
-import { apiGetAuth, apiPostMultipartAuth, resolveMediaUrl } from '../api/client';
-import * as ImagePicker from 'expo-image-picker';
-import { getUploadableImageUri } from '../utils/imageUpload';
+import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 
 interface BookScreenProps {
   navigation?: any;
@@ -32,18 +31,26 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const [showComing, setShowComing] = useState(false);
   const [payVisible, setPayVisible] = useState(false);
   const [payBooking, setPayBooking] = useState<any | null>(null);
-  const [receiptUri, setReceiptUri] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [ownerBanks, setOwnerBanks] = useState<any[]>([]);
-  const [ownerWallets, setOwnerWallets] = useState<any[]>([]);
-  const [loadingOwnerPayouts, setLoadingOwnerPayouts] = useState(false);
+  const [payPrepareLoading, setPayPrepareLoading] = useState(false);
+  const [payWalletLoading, setPayWalletLoading] = useState(false);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
+  const [easypayOrder, setEasypayOrder] = useState<{
+    id: string;
+    publicCode: string;
+    status: string;
+    total: number;
+    currency: string;
+  } | null>(null);
+  const [easypayWallets, setEasypayWallets] = useState<
+    { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[]
+  >([]);
+  const [payerPhone, setPayerPhone] = useState('');
 
-  const load = async (reset: boolean) => {
-    if (!token || loading) return;
+  const load = async (reset: boolean, opts?: { force?: boolean }) => {
+    if (!token || (!opts?.force && loading)) return;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -65,6 +72,60 @@ export function BookScreen({ navigation }: BookScreenProps) {
     load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  const openEasypayPay = async (b: any) => {
+    setPayBooking(b);
+    setPrepareError(null);
+    setEasypayOrder(null);
+    setEasypayWallets([]);
+    setPayerPhone('');
+    setPayVisible(true);
+    if (!token) return;
+    try {
+      setPayPrepareLoading(true);
+      const res = await apiPostAuth<{
+        ok: boolean;
+        order: { id: string; publicCode: string; status: string; total: number; currency: string };
+        wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
+      }>(`/bookings/${b.id}/easypay/prepare`, {}, token as string);
+      setEasypayOrder(res.order);
+      setEasypayWallets(res.wallets || []);
+    } catch (e: any) {
+      setPrepareError(e?.message || 'Could not start Easypay checkout.');
+    } finally {
+      setPayPrepareLoading(false);
+    }
+  };
+
+  const startWallet = async (gatewayCode: string) => {
+    if (!payBooking || !token) return;
+    try {
+      setPayWalletLoading(true);
+      const body: { gatewayCode: string; payerPhone?: string } = { gatewayCode };
+      if (payerPhone.trim()) body.payerPhone = payerPhone.trim();
+      const res = await apiPostAuth<{
+        ok: boolean;
+        launchUrl: string;
+        checkoutAdapter?: string;
+      }>(`/bookings/${payBooking.id}/easypay/wallet`, body, token as string);
+      const url = res.launchUrl;
+      if (url && (await Linking.canOpenURL(url))) {
+        await Linking.openURL(url);
+        Alert.alert(
+          'Complete payment',
+          'Finish the payment in your wallet app or browser. This screen will show Paid when Easypay confirms the transfer (usually within a minute). Pull to refresh if needed.',
+        );
+        setPayVisible(false);
+        await load(true, { force: true });
+      } else {
+        Alert.alert('Checkout', 'No valid payment link was returned. Try again or pick another method.');
+      }
+    } catch (e: any) {
+      Alert.alert('Payment', e?.message || 'Could not start payment.');
+    } finally {
+      setPayWalletLoading(false);
+    }
+  };
 
   // no search/filter
 
@@ -140,33 +201,22 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         <CheckCircle size={16} color="#166534" />
                         <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
                       </View>
-                    ) : !b?.hasReceipt ? (
+                    ) : String(b.status || '').toUpperCase() !== 'CANCELLED' ? (
                       <TouchableOpacity
-                        style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#16a34a', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 8 }}
-                    onPress={async () => {
-                      setPayBooking(b);
-                      setReceiptUri(null);
-                      setOwnerBanks([]);
-                      setOwnerWallets([]);
-                      if (b?.field?.userId && token) {
-                        try {
-                          setLoadingOwnerPayouts(true);
-                          const resp = await apiGetAuth<{ banks: any[]; wallets: any[] }>(`/payouts/owner/${b.field.userId}`, token as any);
-                          setOwnerBanks(resp?.banks || []);
-                          setOwnerWallets(resp?.wallets || []);
-                        } catch (_) {
-                          setOwnerBanks([]);
-                          setOwnerWallets([]);
-                        } finally {
-                          setLoadingOwnerPayouts(false);
-                        }
-                      }
-                      setPayVisible(true);
-                    }}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 8,
+                          backgroundColor: '#16a34a',
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          borderRadius: 8,
+                        }}
+                        onPress={() => void openEasypayPay(b)}
                         activeOpacity={0.8}
                       >
-                        <UploadIcon size={16} color="#ffffff" />
-                        <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay</Text>
+                        <CreditCard size={16} color="#ffffff" />
+                        <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay with Easypay</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -205,105 +255,78 @@ export function BookScreen({ navigation }: BookScreenProps) {
           </View>
         </View>
       </Modal>
-      {/* Pay bottom sheet */}
+      {/* Easypay checkout sheet */}
       <Modal visible={payVisible} animationType="slide" transparent>
         <View style={styles.sheetOverlay}>
           <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setPayVisible(false)} />
-          <View style={[styles.sheetContainer, { height: '95%' }]}>
+          <View style={[styles.sheetContainer, { maxHeight: '92%' }]}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Pay Field Owner</Text>
-            <Text style={styles.sheetSubtitle}>Use one of the owner's accounts below, then upload your receipt for confirmation.</Text>
-            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}>
-              <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 6 }}>Owner Accounts</Text>
-              {loadingOwnerPayouts ? (
-                <Text style={{ color: '#6b7280' }}>Loading accounts...</Text>
-              ) : (
-                <>
-                  {(ownerBanks?.length || 0) > 0 ? (
-                    <View style={{ gap: 6, marginBottom: 8 }}>
-                      {ownerBanks.map((b, idx) => (
-                        <View key={`${b.id}-${idx}`} style={{ backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10 }}>
-                          <Text style={{ fontWeight: '800', color: '#111827' }}>{b.bankName}</Text>
-                          <Text style={{ color: '#374151' }}>{b.accountName}</Text>
-                          <Text style={{ color: '#374151' }}>{b.accountNumber}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                  {(ownerWallets?.length || 0) > 0 ? (
-                    <View style={{ gap: 6, marginBottom: 8 }}>
-                      {ownerWallets.map((w, idx) => (
-                        <View key={`${w.id}-${idx}`} style={{ backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 8, padding: 10 }}>
-                          <Text style={{ fontWeight: '800', color: '#111827' }}>{w.company}</Text>
-                          <Text style={{ color: '#374151' }}>{w.walletNumber}</Text>
-                        </View>
-                      ))}
-                    </View>
-                  ) : null}
-                  {(ownerBanks?.length || 0) === 0 && (ownerWallets?.length || 0) === 0 ? (
-                    <Text style={{ color: '#6b7280' }}>No payout accounts available. Contact the field owner.</Text>
-                  ) : null}
-                </>
-              )}
-            </ScrollView>
-            <View style={{ paddingHorizontal: 16, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
-              <Text style={[styles.sheetTitle, { textAlign: 'left', marginBottom: 4 }]}>Upload Payment Receipt</Text>
-              <Text style={[styles.sheetSubtitle, { textAlign: 'left', marginBottom: 8 }]}>Attach a clear image of your payment receipt. The field owner will review and confirm.</Text>
-              {!!receiptUri ? (
-                <Image source={{ uri: receiptUri }} style={{ width: '100%', height: 220, borderRadius: 10, backgroundColor: '#f3f4f6' }} />
-              ) : (
-                <View style={{ width: '100%', height: 220, borderRadius: 10, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' }}>
-                  <Text style={{ color: '#6b7280' }}>No image selected</Text>
+            <Text style={styles.sheetTitle}>Pay with Easypay</Text>
+            <Text style={styles.sheetSubtitle}>
+              Pay securely through Easypay. Choose a wallet; you will be sent to complete payment. Your booking shows Paid
+              when Easypay confirms the transfer.
+            </Text>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 16 }}>
+              {payPrepareLoading ? (
+                <View style={{ alignItems: 'center', paddingVertical: 24, gap: 12 }}>
+                  <ActivityIndicator size="large" color="#16a34a" />
+                  <Text style={{ color: '#6b7280' }}>Preparing checkout…</Text>
                 </View>
-              )}
-              <View style={{ gap: 10, marginTop: 10, marginBottom: 6 }}>
-                <TouchableOpacity
-                  style={styles.sheetPrimary}
-                  onPress={async () => {
-                    try {
-                      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (perm.status !== 'granted') {
-                        Alert.alert('Photo access needed', 'To upload your payment receipt, allow photo access. You can enable it in Settings if you change your mind.');
-                        return;
-                      }
-                      const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [4,3] });
-                      if (!res.canceled && res.assets && res.assets[0]?.uri) {
-                        setReceiptUri(res.assets[0].uri);
-                      }
-                    } catch (e: any) {
-                      Alert.alert('Could not open gallery', e?.message || 'Failed to pick an image. Try again.');
-                    }
-                  }}
-                >
-                  <Text style={styles.sheetPrimaryText}>{receiptUri ? 'Change Image' : 'Choose Image'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.sheetPrimary, { backgroundColor: '#16a34a', opacity: receiptUri && !uploading ? 1 : 0.6 }]}
-                  disabled={!receiptUri || uploading}
-                  onPress={async () => {
-                    if (!payBooking || !receiptUri) return;
-                    try {
-                      setUploading(true);
-                      const uploadUri = await getUploadableImageUri(receiptUri);
-                      const form = new FormData();
-                      // @ts-ignore: RN FormData file
-                      form.append('receipt', { uri: uploadUri, name: 'receipt.jpg', type: 'image/jpeg' });
-                      await apiPostMultipartAuth(`/bookings/${payBooking.id}/receipt`, form as any, token as any);
-                      setUploading(false);
-                      setPayVisible(false);
-                      setItems((prev) => prev.map((it) => it.id === payBooking.id ? { ...it, hasReceipt: true } : it));
-                      setReceiptUri(null);
-                    } catch (e: any) {
-                      setUploading(false);
-                      Alert.alert('Upload failed', e?.message || 'Could not upload receipt. Please try again.');
-                    }
-                  }}
-                >
-                  <Text style={styles.sheetPrimaryText}>{uploading ? 'Uploading...' : 'Submit Receipt'}</Text>
-                </TouchableOpacity>
-              </View>
-              <SafeAreaView edges={["bottom"]} />
-            </View>
+              ) : prepareError ? (
+                <View style={{ paddingVertical: 12 }}>
+                  <Text style={{ color: '#b91c1c', fontSize: 14, lineHeight: 20 }}>{prepareError}</Text>
+                  <Text style={{ color: '#6b7280', fontSize: 13, marginTop: 10, lineHeight: 19 }}>
+                    Field owners must open Profile → Link To EasyPay (after an approved field) before customers can pay
+                    here.
+                  </Text>
+                </View>
+              ) : easypayOrder ? (
+                <>
+                  <View style={styles.payAmountBox}>
+                    <Text style={styles.payAmountLabel}>Amount due</Text>
+                    <Text style={styles.payAmountValue}>
+                      {easypayOrder.currency || 'GMD'} {Number(easypayOrder.total).toFixed(2)}
+                    </Text>
+                    <Text style={styles.payRef}>Order {easypayOrder.publicCode}</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 8, marginTop: 4 }}>
+                    Payment method
+                  </Text>
+                  {(easypayWallets || []).length === 0 ? (
+                    <Text style={{ color: '#6b7280' }}>
+                      No wallets are available on Easypay for this field yet. Ask the field owner or Easypay operator to
+                      enable Wave, Yonna, or APS.
+                    </Text>
+                  ) : (
+                    <View style={{ gap: 10 }}>
+                      {easypayWallets.map((w) => (
+                        <TouchableOpacity
+                          key={w.gatewayId || w.code}
+                          style={[styles.walletRow, payWalletLoading && { opacity: 0.6 }]}
+                          disabled={payWalletLoading}
+                          onPress={() => void startWallet(w.code)}
+                        >
+                          <Text style={styles.walletName}>{w.name}</Text>
+                          <Text style={styles.walletMeta}>{w.checkoutAdapter}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                  <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 14, marginBottom: 6 }}>
+                    Optional: payer phone (some gateways, e.g. Yonna)
+                  </Text>
+                  <TextInput
+                    value={payerPhone}
+                    onChangeText={setPayerPhone}
+                    placeholder="e.g. 7XXXXXXXX"
+                    keyboardType="phone-pad"
+                    style={styles.phoneInput}
+                    placeholderTextColor="#9ca3af"
+                  />
+                </>
+              ) : null}
+            </ScrollView>
+            <SafeAreaView edges={['bottom']} />
           </View>
         </View>
       </Modal>
@@ -541,5 +564,36 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 16,
+  },
+  payAmountBox: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  payAmountLabel: { fontSize: 12, fontWeight: '700', color: '#166534', textTransform: 'uppercase' },
+  payAmountValue: { fontSize: 26, fontWeight: '900', color: '#14532d', marginTop: 4 },
+  payRef: { fontSize: 13, color: '#15803d', marginTop: 6 },
+  walletRow: {
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  walletName: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  walletMeta: { fontSize: 12, color: '#6b7280', marginTop: 4, textTransform: 'lowercase' },
+  phoneInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 12 : 10,
+    fontSize: 16,
+    color: '#111827',
+    backgroundColor: '#ffffff',
   },
 });

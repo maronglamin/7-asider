@@ -31,10 +31,12 @@ export default function RegisterFieldScreen({ navigation }: any) {
       return;
     }
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Photo access needed', 'To add photos of your field for your listing, allow photo access. You can enable it in Settings if you change your mind.');
-        return;
+      if (Platform.OS === 'ios') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert('Photo access needed', 'To add photos of your field for your listing, allow photo access. You can enable it in Settings if you change your mind.');
+          return;
+        }
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,

@@ -31,6 +31,7 @@ import UsersScreen from './src/screens/admin/UsersScreen';
 import BanksWalletsScreen from './src/screens/BanksWalletsScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
+import LinkEasypayScreen from './src/screens/LinkEasypayScreen';
 
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
@@ -226,6 +227,7 @@ export default function App() {
           <Stack.Screen name="Users" component={UsersScreen} />
           <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+          <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
           <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
           </Stack.Navigator>
         </NavigationContainer>

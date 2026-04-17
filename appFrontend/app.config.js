@@ -28,6 +28,14 @@ module.exports = ({ config }) => ({
   android: {
     ...(config.android || {}),
     versionCode: androidVersionInfo.versionCode || config.android?.versionCode,
+    // Strip broad photo/video storage permissions; gallery uses Android photo picker (no READ_MEDIA_*).
+    blockedPermissions: [
+      ...(config.android?.blockedPermissions || []),
+      'android.permission.READ_MEDIA_IMAGES',
+      'android.permission.READ_MEDIA_VIDEO',
+      'android.permission.READ_EXTERNAL_STORAGE',
+      'android.permission.WRITE_EXTERNAL_STORAGE',
+    ],
   },
   extra: {
     ...(config.extra || {}),
@@ -42,6 +50,8 @@ module.exports = ({ config }) => ({
       'expo-image-picker',
       {
         photosPermission: 'To attach photos when uploading payment receipts for bookings or adding images of your field for listing. Photos are only used for these features.',
+        cameraPermission: false,
+        microphonePermission: false,
       },
     ],
   ],

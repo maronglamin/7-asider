@@ -4,6 +4,13 @@ import path from 'path';
 import fs from 'fs';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
+import {
+  cancelEasypayOrder,
+  createEasypayOrder,
+  getEasypayPartnerConfig,
+  listEasypayWallets,
+  startEasypayWalletCheckout,
+} from '../services/easypayPartner';
 
 const router = Router();
 
@@ -38,6 +45,19 @@ function clampHour(n: any): number {
   const x = Number(n);
   if (!isFinite(x)) return 0;
   return Math.min(23, Math.max(0, Math.floor(x)));
+}
+
+function mergeBookingEasypayMetadata(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {
+  const meta =
+    existing && typeof existing === 'object' && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  const prevEp =
+    meta.easypay && typeof meta.easypay === 'object' && !Array.isArray(meta.easypay)
+      ? { ...(meta.easypay as Record<string, unknown>) }
+      : {};
+  meta.easypay = { ...prevEp, ...patch };
+  return meta;
 }
 
 function resolveBookingType(kind: any): 'HOURLY'|'FULL_DAY'|'MULTI_DAY'|'CUSTOM' {
@@ -407,8 +427,26 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
   try {
     const userId = req.auth!.userId;
     const id = req.params.id;
-    const existing = await (prisma as any).booking.findUnique({ where: { id } });
+    const existing = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: {
+        field: { select: { userId: true } },
+      },
+    });
     if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+
+    const meta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
+    const ep = (meta as any).easypay;
+    const businessId = ep?.businessId as string | undefined;
+    const orderId = ep?.orderId as string | undefined;
+    const unpaid = String(existing.paymentStatus || '').toUpperCase() !== 'PAID';
+    if (unpaid && businessId && orderId && getEasypayPartnerConfig().configured) {
+      try {
+        await cancelEasypayOrder(businessId, orderId);
+      } catch (e) {
+        console.warn('[POST /bookings/:id/cancel] easypay cancel', (e as any)?.message || e);
+      }
+    }
 
     await (prisma as any).$transaction(async (tx: any) => {
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
@@ -513,6 +551,151 @@ router.patch('/:id/payment', requireAuth, async (req: AuthedRequest, res: Respon
     res.json({ ok: true, id: updated.id, paymentStatus: updated.paymentStatus });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update payment status' });
+  }
+});
+
+// POST /bookings/:id/easypay/prepare — booker: create Easypay order + list checkout wallets (field owner must be linked)
+router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!getEasypayPartnerConfig().configured) {
+      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+    }
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: {
+        field: {
+          select: {
+            userId: true,
+            name: true,
+          },
+        },
+      },
+    });
+    if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
+      return res.status(400).json({ error: 'This booking is already paid.' });
+    }
+    const owner = await prisma.user.findUnique({
+      where: { id: booking.field.userId },
+      select: { easypayBusinessId: true },
+    });
+    if (!owner?.easypayBusinessId) {
+      return res.status(409).json({
+        error:
+          'This field cannot accept Easypay payments yet. Ask the field owner to open Profile → Link To EasyPay.',
+      });
+    }
+    const amountGmd = Number(booking.totalAmount);
+    if (!Number.isFinite(amountGmd) || amountGmd <= 0) {
+      return res.status(400).json({ error: 'Invalid booking amount' });
+    }
+    const order = await createEasypayOrder(owner.easypayBusinessId, {
+      partnerExternalBookingId: booking.id,
+      amountGmd,
+      currency: booking.currency || 'GMD',
+    });
+    const wallets = await listEasypayWallets(owner.easypayBusinessId, order.id);
+    const merged = mergeBookingEasypayMetadata(booking.metadata, {
+      businessId: owner.easypayBusinessId,
+      orderId: order.id,
+      orderPublicCode: order.publicCode,
+      orderStatus: order.status,
+      lastPrepareAt: new Date().toISOString(),
+    });
+    await (prisma as any).booking.update({
+      where: { id },
+      data: { metadata: merged as any },
+    });
+    res.json({
+      ok: true,
+      businessId: owner.easypayBusinessId,
+      order: {
+        id: order.id,
+        publicCode: order.publicCode,
+        status: order.status,
+        total: order.total,
+        currency: order.currency,
+      },
+      wallets,
+    });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/easypay/prepare]', e?.message || e);
+    res.status(502).json({ error: e?.message || 'Easypay prepare failed' });
+  }
+});
+
+// POST /bookings/:id/easypay/wallet — booker: start Wave/Yonna (etc.) checkout; open launchUrl on device
+router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    if (!getEasypayPartnerConfig().configured) {
+      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+    }
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const { gatewayCode, payerPhone } = (req.body || {}) as { gatewayCode?: string; payerPhone?: string };
+    if (!gatewayCode || typeof gatewayCode !== 'string') {
+      return res.status(400).json({ error: 'gatewayCode is required' });
+    }
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: {
+        field: { select: { userId: true } },
+      },
+    });
+    if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
+      return res.status(400).json({ error: 'This booking is already paid.' });
+    }
+    const owner = await prisma.user.findUnique({
+      where: { id: booking.field.userId },
+      select: { easypayBusinessId: true },
+    });
+    if (!owner?.easypayBusinessId) {
+      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+    }
+    const meta = booking.metadata && typeof booking.metadata === 'object' ? booking.metadata : {};
+    let orderId = (meta as any)?.easypay?.orderId as string | undefined;
+    let latestMeta: unknown = booking.metadata;
+    if (!orderId) {
+      const amountGmd = Number(booking.totalAmount);
+      const order = await createEasypayOrder(owner.easypayBusinessId, {
+        partnerExternalBookingId: booking.id,
+        amountGmd,
+        currency: booking.currency || 'GMD',
+      });
+      orderId = order.id;
+      latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
+        businessId: owner.easypayBusinessId,
+        orderId: order.id,
+        orderPublicCode: order.publicCode,
+        orderStatus: order.status,
+        lastPrepareAt: new Date().toISOString(),
+      });
+      await (prisma as any).booking.update({ where: { id }, data: { metadata: latestMeta as any } });
+    }
+    const checkout = await startEasypayWalletCheckout(owner.easypayBusinessId, orderId, {
+      gatewayCode,
+      ...(payerPhone && String(payerPhone).trim() ? { payerPhone: String(payerPhone).trim() } : {}),
+    });
+    const merged2 = mergeBookingEasypayMetadata(latestMeta, {
+      businessId: owner.easypayBusinessId,
+      orderId,
+      lastCheckoutAdapter: checkout.checkoutAdapter,
+      lastCheckoutAt: new Date().toISOString(),
+    });
+    await (prisma as any).booking.update({ where: { id }, data: { metadata: merged2 as any } });
+    res.json({
+      ok: true,
+      launchUrl: checkout.launchUrl,
+      qrPayload: checkout.qrPayload,
+      paymentHtml: checkout.paymentHtml,
+      checkoutAdapter: checkout.checkoutAdapter,
+    });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/easypay/wallet]', e?.message || e);
+    res.status(502).json({ error: e?.message || 'Easypay checkout failed' });
   }
 });
 
