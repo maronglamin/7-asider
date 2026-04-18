@@ -1,4 +1,6 @@
+import 'react-native-gesture-handler';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -6,7 +8,6 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Alert, AppState, Linking, Platform } from 'react-native';
 import Constants from 'expo-constants';
-import 'react-native-gesture-handler';
 
 // Import screens
 import { MatchesScreen } from './src/screens/MatchesScreen';
@@ -193,6 +194,7 @@ export default function App() {
   }, [releaseNotice?.storeUrl]);
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <AuthProvider>
         <NavigationContainer>
@@ -238,5 +240,6 @@ export default function App() {
         />
       </AuthProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

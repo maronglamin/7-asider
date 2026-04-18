@@ -11,6 +11,7 @@ import {
   createEasypayOrder,
   getEasypayPartnerConfig,
   listEasypayWallets,
+  easypayGatewayCodeNeedsPayerPhone,
   startEasypayWalletCheckout,
 } from '../services/easypayPartner';
 
@@ -745,6 +746,8 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     }
     const meta = booking.metadata && typeof booking.metadata === 'object' ? booking.metadata : {};
     let orderId = (meta as any)?.easypay?.orderId as string | undefined;
+    if (orderId != null && String(orderId).trim() !== '') orderId = String(orderId).trim();
+    else orderId = undefined;
     let latestMeta: unknown = booking.metadata;
     if (!orderId) {
       const amountGmd = Number(booking.totalAmount);
@@ -763,9 +766,11 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
       });
       await (prisma as any).booking.update({ where: { id }, data: { metadata: latestMeta as any } });
     }
-    const checkout = await startEasypayWalletCheckout(owner.easypayBusinessId, orderId, {
-      gatewayCode,
-      ...(payerPhone && String(payerPhone).trim() ? { payerPhone: String(payerPhone).trim() } : {}),
+    const gc = String(gatewayCode).trim();
+    const phoneRaw = payerPhone && String(payerPhone).trim() ? String(payerPhone).trim() : undefined;
+    const checkout = await startEasypayWalletCheckout(owner.easypayBusinessId, String(orderId).trim(), {
+      gatewayCode: gc,
+      ...(phoneRaw && easypayGatewayCodeNeedsPayerPhone(gc) ? { payerPhone: phoneRaw } : {}),
     });
     const merged2 = mergeBookingEasypayMetadata(latestMeta, {
       businessId: owner.easypayBusinessId,

@@ -1,0 +1,108 @@
+// Applied from settings.gradle so gradle.projectsLoaded runs before subprojects are configured.
+// Picks newest Android SDK CMake >= 3.31 (e.g. 4.1.2) for react-native-reanimated on Windows.
+// See: https://docs.swmansion.com/react-native-reanimated/docs/guides/building-on-windows/
+
+import org.apache.tools.ant.taskdefs.condition.Os
+
+def parseCmakeDirVersion = { String name ->
+    def m = (name =~ /^(\d+)\.(\d+)\.(\d+)$/)
+    if (!m) return null
+    return [m[0][1] as int, m[0][2] as int, m[0][3] as int]
+}
+
+def compareCmakeDirVersion = { String a, String b ->
+    def va = parseCmakeDirVersion(a)
+    def vb = parseCmakeDirVersion(b)
+    if (va == null && vb == null) return 0
+    if (va == null) return -1
+    if (vb == null) return 1
+    for (int i = 0; i < 3; i++) {
+        int c = va[i] <=> vb[i]
+        if (c != 0) return c
+    }
+    return 0
+}
+
+def meetsReanimatedWindowsCmakeMinimum = { String name ->
+    def p = parseCmakeDirVersion(name)
+    if (p == null) return false
+    return p[0] > 3 || (p[0] == 3 && p[1] >= 31)
+}
+
+def resolveBestCmakeVersionForReanimated = { File androidProjectDir ->
+    def localPropsFile = new File(androidProjectDir, 'local.properties')
+    if (!localPropsFile.exists()) {
+        return '4.1.2'
+    }
+    def props = new Properties()
+    localPropsFile.withInputStream { props.load(it) }
+    def sdkDirStr = props.getProperty('sdk.dir')
+    if (sdkDirStr == null) {
+        return '4.1.2'
+    }
+    def sdkDir = new File(sdkDirStr)
+    def cmakeRoot = new File(sdkDir, 'cmake')
+    if (!cmakeRoot.exists()) {
+        return '4.1.2'
+    }
+    def names = []
+    cmakeRoot.eachDir { d -> names << d.name }
+    def semverDirs = names.findAll { parseCmakeDirVersion(it) != null }
+    if (semverDirs.isEmpty()) {
+        return '4.1.2'
+    }
+    def ok = semverDirs.findAll { meetsReanimatedWindowsCmakeMinimum(it) }
+    def pool = ok.isEmpty() ? semverDirs : ok
+    return pool.max { a, b -> compareCmakeDirVersion(a, b) }
+}
+
+def cmakeVersionDirExists = { File androidProjectDir, String ver ->
+    def localPropsFile = new File(androidProjectDir, 'local.properties')
+    if (!localPropsFile.exists()) return false
+    def props = new Properties()
+    localPropsFile.withInputStream { props.load(it) }
+    def sdkDirStr = props.getProperty('sdk.dir')
+    if (sdkDirStr == null) return false
+    return new File(new File(sdkDirStr), "cmake/${ver}").isDirectory()
+}
+
+def androidDirForReanimated = rootDir
+
+gradle.projectsLoaded {
+    def androidDir = androidDirForReanimated
+    it.rootProject.subprojects.each { subproject ->
+        subproject.afterEvaluate {
+            if (subproject.name != 'react-native-reanimated') {
+                return
+            }
+            def rp = subproject.rootProject
+            def cmakeOverride = rp.findProperty('reactNativeReanimatedCmakeVersion')
+            if (cmakeOverride != null) {
+                def v = cmakeOverride.toString().trim()
+                if (!v.isEmpty() && !cmakeVersionDirExists(androidDir, v)) {
+                    rp.logger.lifecycle("[reanimated-cmake] reactNativeReanimatedCmakeVersion=${v} not under sdk.dir/cmake; ignoring.")
+                    cmakeOverride = null
+                }
+            }
+            if (cmakeOverride == null && Os.isFamily(Os.FAMILY_WINDOWS)) {
+                cmakeOverride = resolveBestCmakeVersionForReanimated(androidDir)
+                rp.logger.lifecycle("[reanimated-cmake] Windows: using CMake ${cmakeOverride} for react-native-reanimated (from SDK). Unset CMAKE_VERSION if builds still ask for 3.31.1.")
+            }
+            if (cmakeOverride == null) {
+                return
+            }
+            def ver = cmakeOverride.toString().trim()
+            if (ver.isEmpty()) {
+                return
+            }
+            def androidExt = subproject.extensions.findByName('android')
+            if (androidExt == null) {
+                return
+            }
+            try {
+                androidExt.externalNativeBuild.cmake.version = ver
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+}

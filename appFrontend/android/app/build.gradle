@@ -2,7 +2,33 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+import groovy.json.JsonSlurper
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
+
+// EAS Update (bare): expo.runtimeVersion must be a plain string — same value as eas update and EXPO_RUNTIME_VERSION.
+def readExpoForUpdates = {
+    def f = file("$projectRoot/app.json")
+    if (!f.exists()) {
+        return [appVersion: "1.0.0", runtimeVersion: "1.0.0", updateUrl: "", easProjectId: "", enabled: false]
+    }
+    def root = new JsonSlurper().parse(f)
+    def expo = root.expo ?: [:]
+    def id = expo.extra?.eas?.projectId?.toString()?.trim() ?: ""
+    def url = expo.updates?.url?.toString()?.trim() ?: ""
+    if (!url && id) {
+        url = "https://u.expo.dev/${id}"
+    }
+    def ver = expo.version?.toString() ?: "1.0.0"
+    def rawRv = expo.runtimeVersion
+    def runtimeVer = (rawRv instanceof String && rawRv.toString().trim())
+        ? rawRv.toString().trim()
+        : ver
+    def invalidId = !id || id.contains("REPLACE") || id.contains("__") || id == "null"
+    def enabled = !invalidId && url.startsWith("https://u.expo.dev/")
+    return [appVersion: ver, runtimeVersion: runtimeVer, updateUrl: url, easProjectId: id, enabled: enabled]
+}
+def expoUpdates = readExpoForUpdates()
 
 def keystorePropertiesFile = rootProject.file("keystore.properties")
 def keystoreProperties = new Properties()
@@ -120,8 +146,14 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 25
-        versionName "1.0.1"
+        versionCode 26
+        versionName expoUpdates.appVersion
+        // EAS Update (bare): must match app.json expo.runtimeVersion (string) exactly
+        resValue "string", "expo_runtime_version", expoUpdates.runtimeVersion
+        manifestPlaceholders += [
+            expoUpdatesEnabled: expoUpdates.enabled ? "true" : "false",
+            expoUpdatesUrl    : expoUpdates.enabled ? expoUpdates.updateUrl : "https://u.expo.dev/disabled",
+        ]
     }
     signingConfigs {
         debug {

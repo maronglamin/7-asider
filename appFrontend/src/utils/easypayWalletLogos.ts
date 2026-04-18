@@ -27,3 +27,9 @@ export function easypayWalletLogoSource(w: EasypayWalletLike): ImageSourcePropTy
   if (hay.includes('aps')) return apsLogo;
   return null;
 }
+
+/** Only Yonna may use optional payer phone before wallet redirect; Wave must not send a phone. */
+export function easypayWalletNeedsPayerPhone(w: EasypayWalletLike): boolean {
+  const hay = `${w.code || ''} ${w.name || ''}`.toLowerCase();
+  return hay.includes('yonna');
+}

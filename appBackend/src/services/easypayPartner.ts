@@ -138,6 +138,68 @@ export async function createEasypayOrder(
   };
 }
 
+function pickString(obj: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = obj[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return '';
+}
+
+/**
+ * Easypay internal-partner wallet responses may use camelCase or snake_case, and may put URLs on `payment`.
+ */
+function normalizeWalletCheckoutFromPartnerResponse(json: unknown): {
+  payment: Record<string, unknown>;
+  qrPayload: string;
+  launchUrl: string;
+  paymentHtml: string | null;
+  checkoutAdapter: string;
+} {
+  const j = json && typeof json === 'object' ? (json as Record<string, unknown>) : {};
+  const data = j.data != null && typeof j.data === 'object' ? (j.data as Record<string, unknown>) : j;
+  const root = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+  const paymentObj =
+    root.payment && typeof root.payment === 'object'
+      ? (root.payment as Record<string, unknown>)
+      : ({} as Record<string, unknown>);
+  const urlKeys = [
+    'launchUrl',
+    'launch_url',
+    'checkoutUrl',
+    'checkout_url',
+    'redirectUrl',
+    'redirect_url',
+    'url',
+    'paymentUrl',
+    'payment_url',
+  ];
+  let launchUrl = pickString(root, urlKeys) || pickString(paymentObj, urlKeys);
+  const checkoutAdapter =
+    pickString(root, ['checkoutAdapter', 'checkout_adapter', 'adapter']) ||
+    pickString(paymentObj, ['checkoutAdapter', 'checkout_adapter', 'adapter']);
+  const qrPayload =
+    pickString(root, ['qrPayload', 'qr_payload', 'qr']) || pickString(paymentObj, ['qrPayload', 'qr_payload', 'qr']);
+  const paymentHtmlRaw =
+    pickString(root, ['paymentHtml', 'payment_html']) ||
+    pickString(paymentObj, ['paymentHtml', 'payment_html']) ||
+    '';
+  if (!launchUrl) {
+    const rk = Object.keys(root).join(',');
+    const pk = Object.keys(paymentObj).join(',');
+    throw new Error(
+      `Easypay wallet checkout returned no launch URL. data keys: ${rk || '(none)'}; payment keys: ${pk || '(none)'}`,
+    );
+  }
+  return {
+    payment: Object.keys(paymentObj).length ? paymentObj : root,
+    qrPayload,
+    launchUrl,
+    paymentHtml: paymentHtmlRaw || null,
+    checkoutAdapter,
+  };
+}
+
 export async function listEasypayWallets(businessId: string, orderId: string): Promise<NormalizedCheckoutWallet[]> {
   const path = `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/checkout-wallets`;
   const json = await partnerJson<Record<string, unknown>>(path, { method: 'GET' });
@@ -169,22 +231,33 @@ export async function listEasypayWallets(businessId: string, orderId: string): P
   return normalized;
 }
 
+/** Yonna checkout may require payer phone; Wave and others must not receive phone fields. */
+export function easypayGatewayCodeNeedsPayerPhone(gatewayCode: string): boolean {
+  return String(gatewayCode || '').toLowerCase().includes('yonna');
+}
+
 export async function startEasypayWalletCheckout(
   businessId: string,
   orderId: string,
   body: { gatewayCode: string; payerPhone?: string },
 ) {
-  const json = await partnerJson<{ data: {
-    payment: Record<string, unknown>;
-    qrPayload: string;
-    launchUrl: string;
-    paymentHtml: string | null;
-    checkoutAdapter: string;
-  } }>(
+  const rawPhone = body.payerPhone && String(body.payerPhone).trim() ? String(body.payerPhone).trim() : undefined;
+  const phone =
+    rawPhone && easypayGatewayCodeNeedsPayerPhone(body.gatewayCode) ? rawPhone : undefined;
+  /** Some Easypay builds expect snake_case for gateway (Wave/Yonna checkout). */
+  const payload: Record<string, string> = {
+    gatewayCode: body.gatewayCode,
+    gateway_code: body.gatewayCode,
+  };
+  if (phone) {
+    payload.payerPhone = phone;
+    payload.payer_phone = phone;
+  }
+  const json = await partnerJson<unknown>(
     `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/payments/wallet`,
-    { method: 'POST', body },
+    { method: 'POST', body: payload },
   );
-  return json.data;
+  return normalizeWalletCheckoutFromPartnerResponse(json);
 }
 
 /** APS step 1 — Easypay internal partner authorize (tries documented path, then compact path on 404). */

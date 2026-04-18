@@ -5,9 +5,13 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2 } from 'lucide-react-native';
+import Constants from 'expo-constants';
+import * as Updates from 'expo-updates';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2, RefreshCw } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth } from '../api/client';
@@ -17,7 +21,45 @@ export function ProfileScreen() {
   const { user, clearAuth, token } = useAuth() as any;
   const navigation = useNavigation();
   const [hasKyc, setHasKyc] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const insets = useSafeAreaInsets();
+
+  const handleCheckForUpdate = async () => {
+    if (!Updates.isEnabled) {
+      Alert.alert(
+        'Updates unavailable',
+        'Live updates are not enabled in this build. Install the app from the Play Store for the production version.',
+      );
+      return;
+    }
+    setUpdateBusy(true);
+    try {
+      const check = await Updates.checkForUpdateAsync();
+      if (!check.isAvailable) {
+        Alert.alert('Up to date', 'You already have the latest version.');
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      Alert.alert(
+        'Update downloaded',
+        'Restart now to apply the latest version. If you choose Later, the update will apply the next time you fully close and reopen the app.',
+        [
+          { text: 'Later', style: 'cancel' },
+          {
+            text: 'Restart now',
+            onPress: () => {
+              Updates.reloadAsync();
+            },
+          },
+        ],
+      );
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Please try again in a moment.';
+      Alert.alert('Update check failed', message);
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
 
   const menuItems = [
     {
@@ -45,6 +87,16 @@ export function ProfileScreen() {
       icon: Lock,
       onPress: () => navigation.navigate('ChangePassword' as never),
     },
+    ...(Updates.isEnabled
+      ? [
+          {
+            label: 'Check for app update',
+            icon: RefreshCw,
+            onPress: handleCheckForUpdate,
+            disabledWhile: updateBusy,
+          },
+        ]
+      : []),
     {
       label: 'Delete Account',
       icon: Trash2,
@@ -94,13 +146,23 @@ export function ProfileScreen() {
         <View style={styles.menuContainer}>
           {menuItems.map((item: any, index) => {
             const Icon = item.icon;
+            const busy = item.disabledWhile;
             return (
-              <TouchableOpacity key={index} style={styles.menuItem} onPress={item.onPress}>
+              <TouchableOpacity
+                key={index}
+                style={[styles.menuItem, busy ? styles.menuItemDisabled : null]}
+                onPress={item.onPress}
+                disabled={!!busy}
+              >
                 <View style={styles.menuIconContainer}>
-                  <Icon size={20} color="#16a34a" />
+                  {busy ? (
+                    <ActivityIndicator size="small" color="#16a34a" />
+                  ) : (
+                    <Icon size={20} color="#16a34a" />
+                  )}
                 </View>
-                <Text style={styles.menuLabel}>{item.label}</Text>
-                <Text style={styles.menuArrow}>›</Text>
+                <Text style={styles.menuLabel}>{busy ? 'Checking for update…' : item.label}</Text>
+                {!busy ? <Text style={styles.menuArrow}>›</Text> : null}
               </TouchableOpacity>
             );
           })}
@@ -240,6 +302,9 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+  },
+  menuItemDisabled: {
+    opacity: 0.85,
   },
   menuIconContainer: {
     width: 40,

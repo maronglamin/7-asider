@@ -22,7 +22,7 @@ import { Map, TrendingUp, Plus, CheckCircle, CreditCard } from 'lucide-react-nat
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
-import { easypayBrandLogos, easypayWalletLogoSource } from '../utils/easypayWalletLogos';
+import { easypayBrandLogos, easypayWalletLogoSource, easypayWalletNeedsPayerPhone } from '../utils/easypayWalletLogos';
 
 const easypayMark = require('../../assets/easypay_logo_file.jpeg');
 
@@ -234,7 +234,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
       setApsRequiresOtp(false);
       return;
     }
-    void startWallet(w.code);
+    void startWallet(w);
   };
 
   const runApsAuthorize = async () => {
@@ -307,12 +307,12 @@ export function BookScreen({ navigation }: BookScreenProps) {
     await runApsCompleteWith(apsAuthState, apsOtp.trim() || undefined);
   };
 
-  const startWallet = async (gatewayCode: string) => {
+  const startWallet = async (w: { code: string; name: string; checkoutAdapter: string }) => {
     if (!payBooking || !token) return;
     try {
       setPayWalletLoading(true);
-      const body: { gatewayCode: string; payerPhone?: string } = { gatewayCode };
-      if (payerPhone.trim()) body.payerPhone = payerPhone.trim();
+      const body: { gatewayCode: string; payerPhone?: string } = { gatewayCode: w.code };
+      if (easypayWalletNeedsPayerPhone(w) && payerPhone.trim()) body.payerPhone = payerPhone.trim();
       const res = await apiPostAuth<{
         ok: boolean;
         launchUrl: string;
@@ -661,10 +661,10 @@ export function BookScreen({ navigation }: BookScreenProps) {
                           })}
                         </View>
                       )}
-                      {(easypayWallets || []).some((w) => !isApsCheckoutAdapter(w.checkoutAdapter)) ? (
+                      {(easypayWallets || []).some((w) => !isApsCheckoutAdapter(w.checkoutAdapter) && easypayWalletNeedsPayerPhone(w)) ? (
                         <>
                           <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 14, marginBottom: 6 }}>
-                            Optional: payer phone before opening Wave/Yonna (e.g. Yonna)
+                            Optional: your Yonna wallet number before opening Yonna
                           </Text>
                           <TextInput
                             value={payerPhone}
