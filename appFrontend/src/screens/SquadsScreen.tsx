@@ -37,7 +37,7 @@ export function SquadsScreen() {
 
   return (
     <View style={styles.screen}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.safeTop} />
       {/* Header */}
       <View style={styles.header}>

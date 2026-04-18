@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ChevronLeft } from 'lucide-react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 
@@ -28,9 +28,26 @@ export default function OwnerBookingsScreen() {
     }
   };
 
+  const loadQuiet = useCallback(async () => {
+    if (!token) return;
+    try {
+      const resp = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(`/bookings/owner?limit=10`, token as string);
+      setItems(resp.items || []);
+      setNextCursor(resp.nextCursor || null);
+    } catch {
+      /* keep list */
+    }
+  }, [token]);
+
   useEffect(() => {
     if (token) load();
   }, [token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadQuiet();
+    }, [loadQuiet]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -94,14 +111,18 @@ export default function OwnerBookingsScreen() {
             <Text style={styles.meta} numberOfLines={1}>To: {end.toLocaleString()}</Text>
           </View>
           <Text style={styles.customer} numberOfLines={1}>By: {item.user?.name || item.user?.email || item.userId}</Text>
-          {!!item?.hasReceipt && (
-            <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              {item.latestReceiptUrl ? (
-                <Image source={{ uri: resolveMediaUrl(item.latestReceiptUrl) || undefined }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
-              ) : null}
-              <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ color: '#166534', fontWeight: '800' }}>Receipt uploaded</Text>
-                {canMarkPaid ? (
+          <View style={{ marginTop: 8 }}>
+            {!canMarkPaid ? (
+              <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
+              </View>
+            ) : item?.hasReceipt ? (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                {item.latestReceiptUrl ? (
+                  <Image source={{ uri: resolveMediaUrl(item.latestReceiptUrl) || undefined }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
+                ) : null}
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <Text style={{ color: '#166534', fontWeight: '800' }}>Receipt uploaded</Text>
                   <TouchableOpacity
                     onPress={async () => {
                       try {
@@ -117,14 +138,12 @@ export default function OwnerBookingsScreen() {
                   >
                     <Text style={{ color: '#ffffff', fontWeight: '800' }}>{updatingId === item.id ? 'Marking...' : 'Mark as Paid'}</Text>
                   </TouchableOpacity>
-                ) : (
-                  <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
-                    <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
-                  </View>
-                )}
+                </View>
               </View>
-            </View>
-          )}
+            ) : (
+              <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '600' }}>Awaiting customer payment (Easypay updates automatically)</Text>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -133,7 +152,7 @@ export default function OwnerBookingsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <ChevronLeft size={24} color="#ffffff" />

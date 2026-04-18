@@ -160,7 +160,7 @@ export default function BanksWalletsScreen() {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeTop} edges={['top']}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={[styles.headerRow, { paddingTop: insets.top ? 8 : 12 }]}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
             <ChevronLeft size={22} color="#ffffff" />

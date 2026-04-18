@@ -546,6 +546,50 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
   }
 });
 
+// GET /bookings/:id — booker or field owner (refresh paymentStatus after Easypay webhook, etc.)
+router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    if (['mine', 'owner', 'availability'].includes(id)) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: {
+        field: {
+          select: {
+            id: true,
+            name: true,
+            address: true,
+            city: true,
+            userId: true,
+            images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
+          },
+        },
+        user: { select: { id: true, email: true, name: true } },
+        _count: { select: { PaymentReceipt: true } },
+        PaymentReceipt: { select: { imageUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const isOwner = booking.field.userId === userId;
+    const isBooker = booking.userId === userId;
+    if (!isOwner && !isBooker) return res.status(403).json({ error: 'Not allowed' });
+    const latest = booking.PaymentReceipt?.[0] || null;
+    const { _count, PaymentReceipt, ...rest } = booking;
+    res.json({
+      booking: {
+        ...rest,
+        hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+        latestReceiptUrl: latest?.imageUrl || null,
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'Failed to load booking' });
+  }
+});
+
 // PATCH /bookings/:id/status - owner can mark completed
 router.patch('/:id/status', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {

@@ -78,7 +78,7 @@ export default function UserInfoScreen() {
 
   return (
     <SafeAreaView style={styles.safeTop} edges={["top"]}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <View style={styles.headerBar}>
         <View style={styles.headerTopRow}>
           <TouchableOpacity

@@ -67,7 +67,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
 
       <View style={styles.imageWrap}>

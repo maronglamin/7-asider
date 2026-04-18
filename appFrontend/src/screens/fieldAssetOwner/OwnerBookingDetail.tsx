@@ -1,14 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft } from 'lucide-react-native';
 import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 export default function OwnerBookingDetail({ navigation, route }: any) {
   const { token } = useAuth();
-  const booking = route?.params?.booking;
+  const paramBooking = route?.params?.booking;
+  const [booking, setBooking] = useState<any>(paramBooking);
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
@@ -49,6 +51,7 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
     try {
       setUpdating(true);
       await apiPatchAuth(`/bookings/${booking.id}/status`, { status: 'COMPLETED' }, token as string);
+      setBooking((prev: any) => (prev ? { ...prev, status: 'COMPLETED' } : prev));
       Alert.alert('Updated', 'Booking marked as completed.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to update');
@@ -62,13 +65,40 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
       setPayUpdating(true);
       await apiPatchAuth(`/bookings/${booking.id}/payment`, {}, token as string);
       Alert.alert('Updated', 'Booking marked as PAID.');
-      route.params.booking.paymentStatus = 'PAID';
+      setBooking((prev: any) => (prev ? { ...prev, paymentStatus: 'PAID' } : prev));
     } catch (e: any) {
       Alert.alert('Error', e?.message || 'Failed to mark as paid');
     } finally {
       setPayUpdating(false);
     }
   };
+
+  const refreshBooking = useCallback(async () => {
+    if (!token || !booking?.id) return;
+    try {
+      const res = await apiGetAuth<{ booking: any }>(`/bookings/${booking.id}`, token as string);
+      if (res?.booking) {
+        setBooking((prev: any) => ({
+          ...prev,
+          ...res.booking,
+          field: res.booking.field || prev?.field,
+          user: res.booking.user || prev?.user,
+        }));
+      }
+    } catch (_) {
+      /* keep cached detail */
+    }
+  }, [token, booking?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshBooking();
+    }, [refreshBooking]),
+  );
+
+  useEffect(() => {
+    if (paramBooking) setBooking(paramBooking);
+  }, [paramBooking?.id]);
 
   useEffect(() => {
     (async () => {
@@ -87,7 +117,7 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <ChevronLeft size={24} color="#ffffff" />
@@ -147,7 +177,23 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
           </View>
         )}
         <View style={styles.block}>
-          <Text style={styles.sectionTitle}>Payment Receipts</Text>
+          <Text style={styles.sectionTitle}>Payment</Text>
+          <View style={{ marginBottom: 10 }}>
+            {String(booking?.paymentStatus || '').toUpperCase() === 'PAID' ? (
+              <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
+                <Text style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>
+                  Easypay (or other) payments update here automatically when confirmed.
+                </Text>
+              </View>
+            ) : (
+              <Text style={styles.meta}>
+                Awaiting payment. Customers paying with Easypay do not need to upload a receipt; this screen updates when
+                payment is confirmed.
+              </Text>
+            )}
+          </View>
+          <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Payment receipts (optional)</Text>
           {loadingReceipts ? (
             <Text style={styles.meta}>Loading...</Text>
           ) : receipts.length === 0 ? (
@@ -177,11 +223,28 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
         <View style={styles.buttonsRow}>
           <TouchableOpacity
-            disabled={payUpdating || String(booking.paymentStatus || '').toUpperCase() === 'PAID'}
-            style={[styles.secondary, (payUpdating || String(booking.paymentStatus || '').toUpperCase() === 'PAID') && { opacity: 0.6 }]}
+            disabled={
+              payUpdating ||
+              String(booking.paymentStatus || '').toUpperCase() === 'PAID' ||
+              !booking?.hasReceipt
+            }
+            style={[
+              styles.secondary,
+              (payUpdating ||
+                String(booking.paymentStatus || '').toUpperCase() === 'PAID' ||
+                !booking?.hasReceipt) && { opacity: 0.6 },
+            ]}
             onPress={onMarkPaid}
           >
-            <Text style={styles.secondaryText}>{String(booking.paymentStatus || '').toUpperCase() === 'PAID' ? 'Paid' : (payUpdating ? 'Marking...' : 'Mark as Paid')}</Text>
+            <Text style={styles.secondaryText}>
+              {String(booking.paymentStatus || '').toUpperCase() === 'PAID'
+                ? 'Paid'
+                : !booking?.hasReceipt
+                  ? 'Receipt needed to mark paid'
+                  : payUpdating
+                    ? 'Marking...'
+                    : 'Mark as Paid'}
+            </Text>
           </TouchableOpacity>
           <TouchableOpacity
             disabled={updating || booking.status === 'COMPLETED'}
@@ -224,6 +287,7 @@ const styles = StyleSheet.create({
   blockRowBetween: { backgroundColor: '#ffffff', paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#e5e7eb' },
   title: { fontSize: 18, fontWeight: '800', color: '#111827' },
   sub: { fontSize: 13, color: '#6b7280' },
+  meta: { fontSize: 13, color: '#6b7280', lineHeight: 18 },
   label: { fontSize: 12, color: '#6b7280' },
   value: { fontSize: 14, color: '#111827', fontWeight: '600' },
   total: { fontSize: 18, fontWeight: '800', color: '#16a34a' },

@@ -31,7 +31,7 @@ export function OnboardingScreen({ navigation }: OnboardingScreenProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top','bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       
       {/* Logo and Branding */}
       <View style={styles.content}>

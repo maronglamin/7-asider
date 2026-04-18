@@ -78,7 +78,7 @@ export default function ChangePasswordScreen() {
 
   return (
     <SafeAreaView style={styles.safeTop} edges={['top']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <KeyboardAvoidingView
         style={styles.keyboardWrap}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

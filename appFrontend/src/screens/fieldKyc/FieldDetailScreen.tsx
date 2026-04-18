@@ -103,7 +103,7 @@ export default function FieldDetailScreen({ route, navigation }: any) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <ChevronLeft size={24} color="#ffffff" />

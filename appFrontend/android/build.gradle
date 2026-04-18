@@ -6,18 +6,18 @@ buildscript {
         minSdkVersion = Integer.parseInt(findProperty('android.minSdkVersion') ?: '24')
         compileSdkVersion = Integer.parseInt(findProperty('android.compileSdkVersion') ?: '35')
         targetSdkVersion = Integer.parseInt(findProperty('android.targetSdkVersion') ?: '35')
-        kotlinVersion = findProperty('android.kotlinVersion') ?: '1.9.23'
+        kotlinVersion = findProperty('android.kotlinVersion') ?: '2.0.21'
 
-        ndkVersion = "26.1.10909125"
+        ndkVersion = "27.1.12297006"
     }
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath('com.android.tools.build:gradle:8.3.2')
+        classpath('com.android.tools.build:gradle:8.8.2')
         classpath('com.facebook.react:react-native-gradle-plugin')
-        classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:1.9.23')
+        classpath('org.jetbrains.kotlin:kotlin-gradle-plugin:2.0.21')
     }
 }
 
@@ -38,11 +38,10 @@ allprojects {
         mavenCentral()
         maven { url 'https://www.jitpack.io' }
     }
-    // Force androidx.core to versions compatible with compileSdk 34 / AGP 8.3
     configurations.all {
         resolutionStrategy {
-            force 'androidx.core:core:1.12.0'
-            force 'androidx.core:core-ktx:1.12.0'
+            force 'androidx.core:core:1.15.0'
+            force 'androidx.core:core-ktx:1.15.0'
         }
     }
 }

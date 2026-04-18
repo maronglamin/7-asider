@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,13 +13,18 @@ import {
   ActivityIndicator,
   TextInput,
   useWindowDimensions,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import { Map, TrendingUp, Plus, CheckCircle, CreditCard } from 'lucide-react-native';
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
+import { easypayBrandLogos, easypayWalletLogoSource } from '../utils/easypayWalletLogos';
+
+const easypayMark = require('../../assets/easypay_logo_file.jpeg');
 
 interface BookScreenProps {
   navigation?: any;
@@ -62,6 +67,50 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [apsOtp, setApsOtp] = useState('');
   const [apsRequiresOtp, setApsRequiresOtp] = useState(false);
   const [apsLoading, setApsLoading] = useState(false);
+  const payPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const clearPayPoll = () => {
+    if (payPollRef.current) {
+      clearInterval(payPollRef.current);
+      payPollRef.current = null;
+    }
+  };
+
+  /** Poll GET /bookings/:id until PAID or timeout (after wallet / APS payment). */
+  const pollBookingPaymentStatus = (bookingId: string) => {
+    clearPayPoll();
+    const started = Date.now();
+    payPollRef.current = setInterval(async () => {
+      if (!token) {
+        clearPayPoll();
+        return;
+      }
+      if (Date.now() - started > 120000) {
+        clearPayPoll();
+        return;
+      }
+      try {
+        const res = await apiGetAuth<{ booking: any }>(`/bookings/${bookingId}`, token as string);
+        const ps = String(res.booking?.paymentStatus || '').toUpperCase();
+        setItems((prev) =>
+          prev.map((it) =>
+            it.id === bookingId
+              ? {
+                  ...it,
+                  paymentStatus: res.booking.paymentStatus,
+                  hasReceipt: res.booking.hasReceipt ?? it.hasReceipt,
+                }
+              : it,
+          ),
+        );
+        if (ps === 'PAID') clearPayPoll();
+      } catch {
+        /* ignore transient errors */
+      }
+    }, 2500);
+  };
+
+  useEffect(() => () => clearPayPoll(), []);
 
   const load = async (reset: boolean, opts?: { force?: boolean }) => {
     if (!token || (!opts?.force && loading)) return;
@@ -86,6 +135,26 @@ export function BookScreen({ navigation }: BookScreenProps) {
     load(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!token) return;
+      (async () => {
+        try {
+          const params = new URLSearchParams();
+          params.set('limit', '10');
+          const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(
+            `/bookings/mine?${params.toString()}`,
+            token as string,
+          );
+          setItems(res.items || []);
+          setNextCursor(res.nextCursor);
+        } catch {
+          /* noop */
+        }
+      })();
+    }, [token]),
+  );
 
   function isApsCheckoutAdapter(adapter: string | undefined | null) {
     return String(adapter || '').toLowerCase().includes('aps');
@@ -212,11 +281,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
       await apiPostAuth(`/bookings/${payBooking.id}/easypay/aps/complete`, body, token as string);
       Alert.alert(
         'Payment submitted',
-        'If Easypay confirms the payment, this booking will show Paid shortly. Pull to refresh on Book if needed.',
+        'If Easypay confirms the payment, this screen will update to Paid automatically within a short time.',
       );
+      const paidId = payBooking.id;
       setPayVisible(false);
       clearApsCheckout();
       await load(true, { force: true });
+      pollBookingPaymentStatus(paidId);
     } catch (e: any) {
       Alert.alert('APS', e?.message || 'Could not complete payment.');
     } finally {
@@ -249,13 +320,15 @@ export function BookScreen({ navigation }: BookScreenProps) {
       }>(`/bookings/${payBooking.id}/easypay/wallet`, body, token as string);
       const url = String(res.launchUrl || '').trim();
       if (url && (await Linking.canOpenURL(url))) {
+        const bid = payBooking.id;
         await Linking.openURL(url);
         Alert.alert(
           'Complete payment',
-          'Finish the payment in your wallet app or browser. This screen will show Paid when Easypay confirms the transfer (usually within a minute). Pull to refresh if needed.',
+          'Finish the payment in your wallet app or browser. This list will update to Paid automatically when Easypay confirms the transfer.',
         );
         setPayVisible(false);
         await load(true, { force: true });
+        pollBookingPaymentStatus(bid);
       } else {
         Alert.alert('Checkout', 'No valid payment link was returned. Try again or pick another method.');
       }
@@ -270,7 +343,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
       {/* Header */}
       <View style={styles.header}>
@@ -420,13 +493,12 @@ export function BookScreen({ navigation }: BookScreenProps) {
           >
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Pay with Easypay</Text>
-            <Text style={styles.sheetSubtitle}>
-              Easypay handles payment: Wave/Yonna may open in your browser; APS is completed here with your mobile number
-              and OTP. Your booking shows Paid when Easypay confirms. Pull down to refresh methods if the list is empty.
-            </Text>
             <ScrollView
               style={styles.easypaySheetScroll}
-              contentContainerStyle={{ paddingHorizontal: 4, paddingBottom: 24, flexGrow: 1 }}
+              contentContainerStyle={[
+                styles.easypaySheetScrollContent,
+                !payPrepareLoading && styles.easypaySheetScrollContentGrow,
+              ]}
               refreshControl={
                 <RefreshControl
                   refreshing={paySheetRefreshing}
@@ -471,7 +543,17 @@ export function BookScreen({ navigation }: BookScreenProps) {
                       >
                         <Text style={{ color: '#16a34a', fontWeight: '700', fontSize: 15 }}>← All payment methods</Text>
                       </TouchableOpacity>
-                      <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827' }}>{apsGateway.name} (APS)</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <Image
+                          source={easypayBrandLogos.aps}
+                          style={styles.walletLogoThumb}
+                          resizeMode="contain"
+                          accessibilityLabel="APS Wallet"
+                        />
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827', flex: 1 }}>
+                          {apsGateway.name}
+                        </Text>
+                      </View>
                       {apsStep === 'mobile' ? (
                         <View style={{ gap: 10 }}>
                           <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
@@ -547,19 +629,36 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         </View>
                       ) : (
                         <View style={{ gap: 10 }}>
-                          {easypayWallets.map((w) => (
-                            <TouchableOpacity
-                              key={w.gatewayId || w.code}
-                              style={[styles.walletRow, (payWalletLoading || apsLoading) && { opacity: 0.6 }]}
-                              disabled={payWalletLoading || apsLoading}
-                              onPress={() => onSelectWallet(w)}
-                            >
-                              <Text style={styles.walletName}>{w.name}</Text>
-                              <Text style={styles.walletMeta}>
-                                {isApsCheckoutAdapter(w.checkoutAdapter) ? 'APS — pay in app' : w.checkoutAdapter}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
+                          {easypayWallets.map((w) => {
+                            const logo = easypayWalletLogoSource(w);
+                            const aps = isApsCheckoutAdapter(w.checkoutAdapter);
+                            const subtitle = aps ? 'Pay in app' : 'Tap to pay';
+                            return (
+                              <TouchableOpacity
+                                key={w.gatewayId || w.code}
+                                style={[styles.walletOption, (payWalletLoading || apsLoading) && { opacity: 0.6 }]}
+                                disabled={payWalletLoading || apsLoading}
+                                onPress={() => onSelectWallet(w)}
+                              >
+                                {logo ? (
+                                  <Image
+                                    source={logo}
+                                    style={styles.walletLogoThumb}
+                                    resizeMode="contain"
+                                    accessibilityLabel={w.name}
+                                  />
+                                ) : (
+                                  <View style={styles.walletLogoFallback}>
+                                    <CreditCard size={26} color="#6b7280" />
+                                  </View>
+                                )}
+                                <View style={styles.walletTextCol}>
+                                  <Text style={styles.walletName}>{w.name}</Text>
+                                  <Text style={styles.walletMeta}>{subtitle}</Text>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </View>
                       )}
                       {(easypayWallets || []).some((w) => !isApsCheckoutAdapter(w.checkoutAdapter)) ? (
@@ -579,6 +678,23 @@ export function BookScreen({ navigation }: BookScreenProps) {
                       ) : null}
                     </>
                   )}
+                </>
+              ) : null}
+              {!payPrepareLoading ? (
+                <>
+                  <View style={styles.easypaySheetFooterSpacer} />
+                  <View style={styles.easypaySheetFooter}>
+                    <View style={styles.easypaySheetFooterDivider} />
+                    <Text style={styles.easypaySheetFooterLabel}>Payments powered by</Text>
+                    <View style={styles.easypaySheetFooterLogoCard}>
+                      <Image
+                        source={easypayMark}
+                        style={styles.easypaySheetFooterLogo}
+                        resizeMode="contain"
+                        accessibilityLabel="EasyPay"
+                      />
+                    </View>
+                  </View>
                 </>
               ) : null}
             </ScrollView>
@@ -842,16 +958,38 @@ const styles = StyleSheet.create({
   payAmountLabel: { fontSize: 12, fontWeight: '700', color: '#166534', textTransform: 'uppercase' },
   payAmountValue: { fontSize: 26, fontWeight: '900', color: '#14532d', marginTop: 4 },
   payRef: { fontSize: 13, color: '#15803d', marginTop: 6 },
-  walletRow: {
+  walletOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     backgroundColor: '#f9fafb',
     borderWidth: 1,
     borderColor: '#e5e7eb',
-    borderRadius: 10,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
   },
+  walletLogoThumb: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+  },
+  walletLogoFallback: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e5e7eb',
+  },
+  walletTextCol: { flex: 1, minWidth: 0 },
   walletName: { fontSize: 16, fontWeight: '800', color: '#111827' },
-  walletMeta: { fontSize: 12, color: '#6b7280', marginTop: 4, textTransform: 'lowercase' },
+  walletMeta: { fontSize: 12, color: '#6b7280', marginTop: 4 },
   phoneInput: {
     borderWidth: 1,
     borderColor: '#e5e7eb',
@@ -861,5 +999,51 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     backgroundColor: '#ffffff',
+  },
+  easypaySheetScrollContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 20,
+  },
+  easypaySheetScrollContentGrow: { flexGrow: 1 },
+  easypaySheetFooterSpacer: { flexGrow: 1, minHeight: 24 },
+  easypaySheetFooter: {
+    alignItems: 'center',
+    width: '100%',
+    paddingTop: 4,
+    paddingBottom: 4,
+    marginTop: 8,
+  },
+  easypaySheetFooterDivider: {
+    alignSelf: 'stretch',
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#d1d5db',
+    marginBottom: 18,
+  },
+  easypaySheetFooterLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9ca3af',
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  easypaySheetFooterLogoCard: {
+    width: '100%',
+    maxWidth: 308,
+    backgroundColor: '#ffffff',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 10, shadowOffset: { width: 0, height: 3 } },
+      android: { elevation: 2 },
+    }),
+  },
+  easypaySheetFooterLogo: {
+    width: '100%',
+    height: 52,
   },
 });

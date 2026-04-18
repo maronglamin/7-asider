@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar, MapPin, Users, User } from 'lucide-react-native';
 
 interface BottomTabBarProps {
@@ -9,6 +10,7 @@ interface BottomTabBarProps {
 }
 
 export function BottomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
   const tabConfig = [
     { name: 'Matches', icon: Calendar, label: 'Matches' },
     { name: 'Book', icon: MapPin, label: 'Book' },
@@ -17,7 +19,7 @@ export function BottomTabBar({ state, descriptors, navigation }: BottomTabBarPro
   ];
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingBottom: BASE_TAB_PADDING + insets.bottom }]}>
       {state.routes.map((route: any, index: number) => {
         const { options } = descriptors[route.key];
         const isFocused = state.index === index;
@@ -65,6 +67,8 @@ export function BottomTabBar({ state, descriptors, navigation }: BottomTabBarPro
   );
 }
 
+const BASE_TAB_PADDING = 8;
+
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
@@ -79,7 +83,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 5,
-    paddingBottom: 8,
     paddingTop: 8,
   },
   tab: {

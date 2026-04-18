@@ -177,7 +177,7 @@ export default function MyFieldsScreen({ navigation }: any) {
   return (
     <View style={styles.screen}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>

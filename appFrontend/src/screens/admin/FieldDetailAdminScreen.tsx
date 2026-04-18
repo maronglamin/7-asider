@@ -92,7 +92,7 @@ export default function FieldDetailAdminScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={['top']} style={styles.topSafe} />
 
       {/* Hero image with back button */}

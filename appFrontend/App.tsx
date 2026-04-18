@@ -196,7 +196,7 @@ export default function App() {
     <SafeAreaProvider>
       <AuthProvider>
         <NavigationContainer>
-          <StatusBar style="light" backgroundColor="#16a34a" />
+          <StatusBar style="light" />
           <Stack.Navigator
             screenOptions={{
               headerShown: false,

@@ -184,7 +184,7 @@ export default function AdminBookingsScreen({ navigation }: { navigation?: any }
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation?.goBack()}>
           <ArrowLeft size={24} color="#ffffff" />
@@ -302,6 +302,7 @@ const styles = StyleSheet.create({
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   sep: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 8 },
   emptyText: { color: '#6b7280' },
+  errorText: { color: '#b91c1c', fontSize: 14, textAlign: 'center' },
   linkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   linkText: { color: '#111827', fontWeight: '800' },
 

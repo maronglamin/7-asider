@@ -174,7 +174,7 @@ export default function FindFieldScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
       <FlatList
         contentContainerStyle={styles.listContent}

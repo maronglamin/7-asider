@@ -353,7 +353,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
       {/* Header with Back Button */}
       <View style={styles.imageContainer}>

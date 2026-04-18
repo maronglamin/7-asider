@@ -110,7 +110,7 @@ export default function RegisterFieldScreen({ navigation }: any) {
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
-        <StatusBar style="light" backgroundColor="#16a34a" />
+        <StatusBar style="light" />
         <View style={styles.headerBar}>
           {step === 1 ? (
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>

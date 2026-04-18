@@ -58,7 +58,7 @@ export function RegisterScreen({ navigation }: RegisterScreenProps) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       
       {/* Header */}
       <SafeAreaView style={styles.headerContainer} edges={['top']}>

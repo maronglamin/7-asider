@@ -32,7 +32,7 @@ export function ForgotPasswordScreen({ navigation }: { navigation?: any }) {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation?.goBack()}>
           <ArrowLeft size={24} color="#ffffff" />

@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2 } from 'lucide-react-native';
@@ -69,7 +68,7 @@ export function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       {/* Header with Profile Info */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.profileInfo}>
@@ -123,7 +122,7 @@ export function ProfileScreen() {
 
         {/* App Version */}
         <View style={styles.versionContainer}>
-          <Text style={styles.versionText}>7-aside v1.0.0</Text>
+          <Text style={styles.versionText}>7-aside v1.0.1</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -133,7 +132,7 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Platform.OS === 'ios' ? '#f9fafb' : '#16a34a',
+    backgroundColor: '#f9fafb',
   },
   header: {
     backgroundColor: '#16a34a',

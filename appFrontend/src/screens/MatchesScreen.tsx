@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Platform,
   RefreshControl,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -113,7 +112,7 @@ export function MatchesScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
         <View style={styles.headerContent}>
@@ -223,7 +222,7 @@ export function MatchesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Platform.OS === 'ios' ? '#f9fafb' : '#16a34a',
+    backgroundColor: '#f9fafb',
   },
   header: {
     backgroundColor: '#16a34a',

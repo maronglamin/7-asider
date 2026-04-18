@@ -22,7 +22,7 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top','bottom']}>
-      <StatusBar style="light" backgroundColor="#16a34a" />
+      <StatusBar style="light" />
       
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
