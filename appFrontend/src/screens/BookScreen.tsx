@@ -22,7 +22,18 @@ import { Map, TrendingUp, Plus, CheckCircle, CreditCard } from 'lucide-react-nat
 import { FieldCard } from '../components/FieldCard';
 import { useAuth } from '../context/AuthContext';
 import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
-import { easypayBrandLogos, easypayWalletLogoSource, easypayWalletNeedsPayerPhone } from '../utils/easypayWalletLogos';
+import {
+  easypayBrandLogos,
+  easypayWalletIsWave,
+  easypayWalletLogoSource,
+  easypayWalletNeedsPayerPhone,
+} from '../utils/easypayWalletLogos';
+import {
+  EASYPAY_OWNER_PAYMENT_NOT_READY,
+  friendlyEasypayActionError,
+  friendlyEasypayPrepareError,
+  friendlyEasypayWalletError,
+} from '../utils/easypayBookerMessages';
 
 const easypayMark = require('../../assets/easypay_logo_file.jpeg');
 
@@ -45,7 +56,6 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [payPrepareLoading, setPayPrepareLoading] = useState(false);
   const [payWalletLoading, setPayWalletLoading] = useState(false);
   const [prepareError, setPrepareError] = useState<string | null>(null);
-  const [prepareHint, setPrepareHint] = useState<string | null>(null);
   const [easypayOrder, setEasypayOrder] = useState<{
     id: string;
     publicCode: string;
@@ -56,10 +66,9 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [easypayWallets, setEasypayWallets] = useState<
     { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[]
   >([]);
-  const [payerPhone, setPayerPhone] = useState('');
   /** Pull-to-refresh inside Easypay sheet (re-fetches prepare / wallet list). */
   const [paySheetRefreshing, setPaySheetRefreshing] = useState(false);
-  /** Easypay APS (mobile → authorize → OTP → complete); Wave/Yonna use wallet + launchUrl only. */
+  /** Easypay APS (mobile → OTP in app); Yonna (mobile then wallet POST); Wave taps straight to launchUrl. */
   const [apsGateway, setApsGateway] = useState<{ code: string; name: string } | null>(null);
   const [apsStep, setApsStep] = useState<'mobile' | 'otp'>('mobile');
   const [apsMobile, setApsMobile] = useState('');
@@ -67,6 +76,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [apsOtp, setApsOtp] = useState('');
   const [apsRequiresOtp, setApsRequiresOtp] = useState(false);
   const [apsLoading, setApsLoading] = useState(false);
+  /** Yonna: pick wallet first, then collect mobile (same pattern as APS). */
+  const [yonnaWallet, setYonnaWallet] = useState<{
+    code: string;
+    name: string;
+    checkoutAdapter: string;
+  } | null>(null);
+  const [yonnaMobile, setYonnaMobile] = useState('');
   const payPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearPayPoll = () => {
@@ -168,13 +184,14 @@ export function BookScreen({ navigation }: BookScreenProps) {
     setApsOtp('');
     setApsRequiresOtp(false);
     setApsLoading(false);
+    setYonnaWallet(null);
+    setYonnaMobile('');
   };
 
   type PrepareRes = {
     ok: boolean;
     order: { id: string; publicCode: string; status: string; total: number; currency: string };
     wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
-    prepareHint?: string;
   };
 
   /** Re-calls POST …/easypay/prepare (idempotent order + fresh wallet list from Easypay). */
@@ -184,7 +201,6 @@ export function BookScreen({ navigation }: BookScreenProps) {
     else setPayPrepareLoading(true);
     if (mode === 'open') {
       setPrepareError(null);
-      setPrepareHint(null);
       setEasypayOrder(null);
       setEasypayWallets([]);
     } else {
@@ -196,13 +212,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
       clearApsCheckout();
       setEasypayOrder(res.order);
       setEasypayWallets(Array.isArray(res.wallets) ? res.wallets : []);
-      setPrepareHint(typeof res.prepareHint === 'string' ? res.prepareHint : null);
     } catch (e: any) {
       const msg = e?.message || 'Could not load Easypay checkout.';
+      const friendly = friendlyEasypayPrepareError(msg);
       if (mode === 'refresh') {
-        setPrepareError(msg);
+        setPrepareError(friendly);
       } else {
-        setPrepareError(msg);
+        setPrepareError(friendly);
         setEasypayOrder(null);
         setEasypayWallets([]);
       }
@@ -219,13 +235,14 @@ export function BookScreen({ navigation }: BookScreenProps) {
     }
     clearApsCheckout();
     setPayBooking(b);
-    setPayerPhone('');
     setPayVisible(true);
     await prepareEasypayCheckout(b.id, 'open');
   };
 
   const onSelectWallet = (w: { code: string; name: string; checkoutAdapter: string }) => {
     if (isApsCheckoutAdapter(w.checkoutAdapter)) {
+      setYonnaWallet(null);
+      setYonnaMobile('');
       setApsGateway({ code: w.code, name: w.name });
       setApsStep('mobile');
       setApsMobile('');
@@ -234,7 +251,23 @@ export function BookScreen({ navigation }: BookScreenProps) {
       setApsRequiresOtp(false);
       return;
     }
+    if (easypayWalletNeedsPayerPhone(w)) {
+      setApsGateway(null);
+      setYonnaWallet({ code: w.code, name: w.name, checkoutAdapter: w.checkoutAdapter });
+      setYonnaMobile('');
+      return;
+    }
     void startWallet(w);
+  };
+
+  const runYonnaContinue = () => {
+    if (!yonnaWallet || !payBooking || !token) return;
+    const digits = yonnaMobile.replace(/\D/g, '');
+    if (digits.length < 7) {
+      Alert.alert('Mobile number', 'Enter the mobile number linked to your Yonna wallet.');
+      return;
+    }
+    void startWallet(yonnaWallet, { payerPhone: digits });
   };
 
   const runApsAuthorize = async () => {
@@ -263,7 +296,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
         await runApsCompleteWith(res.authState, undefined);
       }
     } catch (e: any) {
-      Alert.alert('APS', e?.message || 'Could not start APS payment.');
+      Alert.alert('APS', friendlyEasypayActionError(e?.message) || 'Could not start APS payment.');
     } finally {
       setApsLoading(false);
     }
@@ -289,7 +322,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
       await load(true, { force: true });
       pollBookingPaymentStatus(paidId);
     } catch (e: any) {
-      Alert.alert('APS', e?.message || 'Could not complete payment.');
+      Alert.alert('APS', friendlyEasypayActionError(e?.message) || 'Could not complete payment.');
     } finally {
       setApsLoading(false);
     }
@@ -307,33 +340,54 @@ export function BookScreen({ navigation }: BookScreenProps) {
     await runApsCompleteWith(apsAuthState, apsOtp.trim() || undefined);
   };
 
-  const startWallet = async (w: { code: string; name: string; checkoutAdapter: string }) => {
+  const startWallet = async (
+    w: { code: string; name: string; checkoutAdapter: string },
+    opts?: { payerPhone?: string },
+  ) => {
     if (!payBooking || !token) return;
+    const payerDigits = String(opts?.payerPhone || '').replace(/\D/g, '');
+    if (easypayWalletNeedsPayerPhone(w) && payerDigits.length < 7) {
+      Alert.alert('Mobile number', 'Enter the mobile number linked to your Yonna wallet.');
+      return;
+    }
     try {
       setPayWalletLoading(true);
       const body: { gatewayCode: string; payerPhone?: string } = { gatewayCode: w.code };
-      if (easypayWalletNeedsPayerPhone(w) && payerPhone.trim()) body.payerPhone = payerPhone.trim();
+      if (easypayWalletNeedsPayerPhone(w) && payerDigits) body.payerPhone = payerDigits;
       const res = await apiPostAuth<{
         ok: boolean;
         launchUrl: string;
         checkoutAdapter?: string;
       }>(`/bookings/${payBooking.id}/easypay/wallet`, body, token as string);
       const url = String(res.launchUrl || '').trim();
-      if (url && (await Linking.canOpenURL(url))) {
-        const bid = payBooking.id;
-        await Linking.openURL(url);
-        Alert.alert(
-          'Complete payment',
-          'Finish the payment in your wallet app or browser. This list will update to Paid automatically when Easypay confirms the transfer.',
-        );
-        setPayVisible(false);
-        await load(true, { force: true });
-        pollBookingPaymentStatus(bid);
-      } else {
-        Alert.alert('Checkout', 'No valid payment link was returned. Try again or pick another method.');
+      if (!url) {
+        Alert.alert('Payment', friendlyEasypayWalletError(''));
+        return;
       }
+      const bid = payBooking.id;
+      try {
+        await Linking.openURL(url);
+      } catch {
+        Alert.alert(
+          'Could not open link',
+          easypayWalletIsWave(w)
+            ? 'Try updating the Wave app or open this payment in your phone browser. You can pull down on this sheet to refresh after paying.'
+            : 'Try again or complete the payment in your wallet app if it opens manually.',
+        );
+        return;
+      }
+      Alert.alert(
+        'Complete payment',
+        easypayWalletIsWave(w)
+          ? 'Finish the payment in the Wave app or browser. This booking will show as Paid when Easypay confirms the transfer.'
+          : 'Finish the payment in your wallet app or browser. This list will update to Paid automatically when Easypay confirms the transfer.',
+      );
+      setPayVisible(false);
+      clearApsCheckout();
+      await load(true, { force: true });
+      pollBookingPaymentStatus(bid);
     } catch (e: any) {
-      Alert.alert('Payment', e?.message || 'Could not start payment.');
+      Alert.alert('Payment', friendlyEasypayWalletError(e?.message));
     } finally {
       setPayWalletLoading(false);
     }
@@ -520,10 +574,6 @@ export function BookScreen({ navigation }: BookScreenProps) {
               ) : prepareError ? (
                 <View style={{ paddingVertical: 12 }}>
                   <Text style={{ color: '#b91c1c', fontSize: 14, lineHeight: 20 }}>{prepareError}</Text>
-                  <Text style={{ color: '#6b7280', fontSize: 13, marginTop: 10, lineHeight: 19 }}>
-                    Field owners must open Profile → Link To EasyPay (after an approved field) before customers can pay
-                    here.
-                  </Text>
                 </View>
               ) : easypayOrder ? (
                 <>
@@ -601,6 +651,49 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         </View>
                       )}
                     </View>
+                  ) : yonnaWallet ? (
+                    <View style={{ gap: 14, marginTop: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => clearApsCheckout()}
+                        disabled={payWalletLoading}
+                        style={{ alignSelf: 'flex-start', paddingVertical: 6 }}
+                      >
+                        <Text style={{ color: '#16a34a', fontWeight: '700', fontSize: 15 }}>← All payment methods</Text>
+                      </TouchableOpacity>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <Image
+                          source={easypayBrandLogos.yonna}
+                          style={styles.walletLogoThumb}
+                          resizeMode="contain"
+                          accessibilityLabel="Yonna Wallet"
+                        />
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: '#111827', flex: 1 }}>
+                          {yonnaWallet.name}
+                        </Text>
+                      </View>
+                      <View style={{ gap: 10 }}>
+                        <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
+                          Enter the mobile number linked to your Yonna wallet, then continue to open Yonna and complete
+                          payment.
+                        </Text>
+                        <TextInput
+                          value={yonnaMobile}
+                          onChangeText={setYonnaMobile}
+                          placeholder="Yonna wallet mobile (digits)"
+                          keyboardType="phone-pad"
+                          style={styles.phoneInput}
+                          placeholderTextColor="#9ca3af"
+                          editable={!payWalletLoading}
+                        />
+                        <TouchableOpacity
+                          style={[styles.sheetPrimary, payWalletLoading && { opacity: 0.65 }]}
+                          disabled={payWalletLoading}
+                          onPress={() => void runYonnaContinue()}
+                        >
+                          <Text style={styles.sheetPrimaryText}>{payWalletLoading ? 'Please wait…' : 'Continue'}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   ) : (
                     <>
                       <Text style={{ fontSize: 14, fontWeight: '800', color: '#374151', marginBottom: 8, marginTop: 4 }}>
@@ -608,13 +701,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                       </Text>
                       {(easypayWallets || []).length === 0 ? (
                         <View style={{ gap: 12 }}>
-                          <Text style={{ color: '#6b7280', lineHeight: 20 }}>
-                            No payment methods were returned for this checkout. This usually means no gateways are enabled
-                            for this merchant in Easypay, or the Easypay API response shape differs from what we expect.
-                          </Text>
-                          {!!prepareHint && (
-                            <Text style={{ color: '#374151', fontSize: 13, lineHeight: 19 }}>{prepareHint}</Text>
-                          )}
+                          <Text style={{ color: '#6b7280', lineHeight: 20 }}>{EASYPAY_OWNER_PAYMENT_NOT_READY}</Text>
                           {!!payBooking?.id && (
                             <TouchableOpacity
                               style={styles.sheetPrimary}
@@ -632,7 +719,15 @@ export function BookScreen({ navigation }: BookScreenProps) {
                           {easypayWallets.map((w) => {
                             const logo = easypayWalletLogoSource(w);
                             const aps = isApsCheckoutAdapter(w.checkoutAdapter);
-                            const subtitle = aps ? 'Pay in app' : 'Tap to pay';
+                            const wave = easypayWalletIsWave(w);
+                            const yonna = easypayWalletNeedsPayerPhone(w);
+                            const subtitle = aps
+                              ? 'Pay in app'
+                              : wave
+                                ? 'Tap to pay in Wave'
+                                : yonna
+                                  ? 'Enter mobile on next step'
+                                  : 'Tap to pay';
                             return (
                               <TouchableOpacity
                                 key={w.gatewayId || w.code}
@@ -661,21 +756,6 @@ export function BookScreen({ navigation }: BookScreenProps) {
                           })}
                         </View>
                       )}
-                      {(easypayWallets || []).some((w) => !isApsCheckoutAdapter(w.checkoutAdapter) && easypayWalletNeedsPayerPhone(w)) ? (
-                        <>
-                          <Text style={{ fontSize: 12, color: '#6b7280', marginTop: 14, marginBottom: 6 }}>
-                            Optional: your Yonna wallet number before opening Yonna
-                          </Text>
-                          <TextInput
-                            value={payerPhone}
-                            onChangeText={setPayerPhone}
-                            placeholder="e.g. 7XXXXXXXX"
-                            keyboardType="phone-pad"
-                            style={styles.phoneInput}
-                            placeholderTextColor="#9ca3af"
-                          />
-                        </>
-                      ) : null}
                     </>
                   )}
                 </>

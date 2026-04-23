@@ -216,16 +216,13 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     }
     (async () => {
       try {
-        console.log('[BookingScreen] Loading availability', { fieldId, selectedDate });
         const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
           buildAvailabilityPath(selectedDate)
         );
         const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
-        console.log('[BookingScreen] Availability loaded', { taken });
         setBookedHours(taken);
         setConflictMsg('');
       } catch (_e) {
-        console.log('[BookingScreen] Availability error', _e);
         setBookedHours([]);
       }
     })();
@@ -281,9 +278,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         body = { fieldId, kind: preset === 'custom' ? 'CUSTOM' : 'HOURLY', date: selectedDate, startHour, hours, timezone };
       }
       if (isReschedule && existingBookingId) {
-        console.log('[BookingScreen] Rescheduling booking', { bookingId: existingBookingId, body });
         const res = await apiPatchAuth<{ ok: boolean; booking: any }>(`/bookings/${existingBookingId}/reschedule`, body, token || '');
-        console.log('[BookingScreen] Booking rescheduled');
         const nextBooking = {
           ...(rescheduleBooking || {}),
           ...(res?.booking || {}),
@@ -296,13 +291,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         return;
       }
 
-      console.log('[BookingScreen] Creating booking', body);
       await apiPostAuth<{ ok: boolean; bookingId: string; totalAmount: number }>(`/bookings`, body, token || '');
-      console.log('[BookingScreen] Booking created');
       Alert.alert('Booking Confirmed', 'Your booking has been created.', [{ text: 'OK', onPress: () => navigation?.goBack() }]);
     } catch (e: any) {
       const msg = e?.message || (isReschedule ? 'Failed to reschedule booking' : 'Failed to create booking');
-      console.log('[BookingScreen] Booking error', msg);
       if (/conflict/i.test(msg) || /409/.test(msg)) {
         setConflictMsg(`Selected ${isHoursBased ? 'time' : 'date'} conflicts with an existing booking. Please choose another option.`);
         // Refresh availability

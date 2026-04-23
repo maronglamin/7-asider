@@ -705,7 +705,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       ...(wallets.length === 0
         ? {
             prepareHint:
-              'Easypay returned no checkout wallets for this order. On Easypay, attach and enable payment gateways (Wave, Yonna, APS, etc.) for this merchant business.',
+              'The field owner still needs to enable a payout option in EasyPay before customers can pay online for this booking.',
           }
         : {}),
     });
@@ -788,7 +788,20 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     });
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/wallet]', e?.message || e);
-    res.status(502).json({ error: e?.message || 'Easypay checkout failed' });
+    if (e?.code === 'EASYPAY_NO_LAUNCH_URL') {
+      return res.status(502).json({
+        error: 'We could not get a checkout link from the payment provider. Please try again or pick another method.',
+      });
+    }
+    const upstream = typeof e?.status === 'number' ? e.status : 0;
+    if (upstream >= 500) {
+      return res.status(502).json({
+        error: 'The payment service is temporarily unavailable. Please try again in a few moments.',
+      });
+    }
+    res.status(502).json({
+      error: 'We could not start this payment. Please try again in a moment or choose another method.',
+    });
   }
 });
 
