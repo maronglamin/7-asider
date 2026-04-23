@@ -146,6 +146,30 @@ function pickString(obj: Record<string, unknown>, keys: string[]): string {
   return '';
 }
 
+/** Depth-first search for http(s) or common app deep-link schemes (Wave, etc.). */
+function findFirstLaunchableUrlInValue(value: unknown, depth = 0): string {
+  if (depth > 8) return '';
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (/^https?:\/\//i.test(s) && s.length < 4096) return s;
+    if (/^(wave|wv|intent|mailto):/i.test(s) && s.length < 4096) return s;
+    return '';
+  }
+  if (!value || typeof value !== 'object') return '';
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findFirstLaunchableUrlInValue(item, depth + 1);
+      if (found) return found;
+    }
+    return '';
+  }
+  for (const v of Object.values(value as Record<string, unknown>)) {
+    const found = findFirstLaunchableUrlInValue(v, depth + 1);
+    if (found) return found;
+  }
+  return '';
+}
+
 /**
  * Easypay internal-partner wallet responses may use camelCase or snake_case, and may put URLs on `payment`.
  */
@@ -173,6 +197,14 @@ function normalizeWalletCheckoutFromPartnerResponse(json: unknown): {
     'url',
     'paymentUrl',
     'payment_url',
+    'deepLink',
+    'deep_link',
+    'mobileLaunchUrl',
+    'mobile_launch_url',
+    'waveUrl',
+    'wave_url',
+    'href',
+    'link',
   ];
   let launchUrl = pickString(root, urlKeys) || pickString(paymentObj, urlKeys);
   const checkoutAdapter =
@@ -185,10 +217,14 @@ function normalizeWalletCheckoutFromPartnerResponse(json: unknown): {
     pickString(paymentObj, ['paymentHtml', 'payment_html']) ||
     '';
   if (!launchUrl) {
+    launchUrl = findFirstLaunchableUrlInValue(root) || findFirstLaunchableUrlInValue(paymentObj) || findFirstLaunchableUrlInValue(j);
+  }
+  if (!launchUrl) {
     const rk = Object.keys(root).join(',');
     const pk = Object.keys(paymentObj).join(',');
-    throw new Error(
-      `Easypay wallet checkout returned no launch URL. data keys: ${rk || '(none)'}; payment keys: ${pk || '(none)'}`,
+    throw Object.assign(
+      new Error(`Easypay wallet checkout returned no launch URL. data keys: ${rk || '(none)'}; payment keys: ${pk || '(none)'}`),
+      { code: 'EASYPAY_NO_LAUNCH_URL' as const },
     );
   }
   return {
@@ -244,15 +280,9 @@ export async function startEasypayWalletCheckout(
   const rawPhone = body.payerPhone && String(body.payerPhone).trim() ? String(body.payerPhone).trim() : undefined;
   const phone =
     rawPhone && easypayGatewayCodeNeedsPayerPhone(body.gatewayCode) ? rawPhone : undefined;
-  /** Some Easypay builds expect snake_case for gateway (Wave/Yonna checkout). */
-  const payload: Record<string, string> = {
-    gatewayCode: body.gatewayCode,
-    gateway_code: body.gatewayCode,
-  };
-  if (phone) {
-    payload.payerPhone = phone;
-    payload.payer_phone = phone;
-  }
+  /** Partner API contract: camelCase only; duplicate keys broke some Easypay builds (Wave checkout 5xx). */
+  const payload: { gatewayCode: string; payerPhone?: string } = { gatewayCode: body.gatewayCode };
+  if (phone) payload.payerPhone = phone;
   const json = await partnerJson<unknown>(
     `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/payments/wallet`,
     { method: 'POST', body: payload },

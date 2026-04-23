@@ -33,3 +33,8 @@ export function easypayWalletNeedsPayerPhone(w: EasypayWalletLike): boolean {
   const hay = `${w.code || ''} ${w.name || ''}`.toLowerCase();
   return hay.includes('yonna');
 }
+
+export function easypayWalletIsWave(w: EasypayWalletLike): boolean {
+  const hay = `${w.code || ''} ${w.name || ''} ${w.checkoutAdapter || ''}`.toLowerCase();
+  return hay.includes('wave');
+}
