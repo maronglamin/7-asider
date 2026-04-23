@@ -40,6 +40,7 @@ module.exports = ({ config }) => ({
   },
   plugins: [
     ...(config.plugins || []),
+    '@react-native-community/datetimepicker',
     'expo-secure-store',
     [
       'expo-image-picker',

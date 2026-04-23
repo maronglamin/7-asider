@@ -146,7 +146,7 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 26
+        versionCode 28
         versionName expoUpdates.appVersion
         // EAS Update (bare): must match app.json expo.runtimeVersion (string) exactly
         resValue "string", "expo_runtime_version", expoUpdates.runtimeVersion
@@ -183,16 +183,9 @@ android {
             crunchPngs (findProperty('android.enablePngCrunchInReleaseBuilds')?.toBoolean() ?: true)
         }
     }
-    // Generate per-ABI APKs (smaller download per device)
-    // 64-bit only: avoids armeabi-v7a native build failures on this toolchain.
-    splits {
-        abi {
-            enable true
-            reset()
-            include 'arm64-v8a', 'x86_64'
-            universalApk false
-        }
-    }
+    // Single universal APK/AAB (no ABI splits). Per-ABI splits can ship an APK missing native .so files
+    // (SoLoaderDSONotFoundError / libreact_featureflagsjni) when the wrong artifact is installed.
+    // Architectures still come from gradle.properties reactNativeArchitectures (arm64-v8a,x86_64).
     packagingOptions {
         jniLibs {
             useLegacyPackaging (findProperty('expo.useLegacyPackaging')?.toBoolean() ?: false)

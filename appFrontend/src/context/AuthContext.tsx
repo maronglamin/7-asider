@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 
 type User = { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } | null;
@@ -50,10 +51,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ user, token, setAuth, clearAuth }}>
-      {ready ? children : null}
+      {ready ? (
+        children
+      ) : (
+        <View style={authLoadingStyles.root}>
+          <ActivityIndicator size="large" color="#ffffff" />
+        </View>
+      )}
     </AuthContext.Provider>
   );
 }
+
+const authLoadingStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#16a34a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
 
 export function useAuth() {
   const ctx = useContext(AuthContext);

@@ -1,12 +1,13 @@
 import 'react-native-gesture-handler';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import 'react-native-reanimated';
+import React, { Component, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Alert, AppState, Linking, Platform } from 'react-native';
+import { Alert, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 
 // Import screens
@@ -76,6 +77,45 @@ function getReleaseKey(notice: ReleaseNotice | null): string {
   if (!notice) return '';
   return `${notice.mode}:${notice.latestVersion || ''}:${notice.latestBuild || ''}`;
 }
+
+type AppErrorBoundaryState = { hasError: boolean; message?: string };
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, AppErrorBoundaryState> {
+  override state: AppErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(error: Error): AppErrorBoundaryState {
+    return { hasError: true, message: error.message };
+  }
+
+  override componentDidCatch(error: Error) {
+    console.error('[App] uncaught render error', error);
+  }
+
+  override render() {
+    if (this.state.hasError) {
+      return (
+        <View style={appErrorStyles.container}>
+          <Text style={appErrorStyles.title}>Something went wrong</Text>
+          {this.state.message ? (
+            <Text style={appErrorStyles.detail}>{this.state.message}</Text>
+          ) : null}
+        </View>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const appErrorStyles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#16a34a',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  title: { color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 8 },
+  detail: { color: '#dcfce7', fontSize: 14 },
+});
 
 function MainTabs() {
   return (
@@ -194,6 +234,7 @@ export default function App() {
   }, [releaseNotice?.storeUrl]);
 
   return (
+    <AppErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <AuthProvider>
@@ -241,5 +282,6 @@ export default function App() {
       </AuthProvider>
     </SafeAreaProvider>
     </GestureHandlerRootView>
+    </AppErrorBoundary>
   );
 }
