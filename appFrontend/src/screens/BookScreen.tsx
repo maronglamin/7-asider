@@ -78,6 +78,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const [apsLoading, setApsLoading] = useState(false);
   /** Yonna: pick wallet first, then collect mobile (same pattern as APS). */
   const [yonnaWallet, setYonnaWallet] = useState<{
+    gatewayId: string;
     code: string;
     name: string;
     checkoutAdapter: string;
@@ -239,7 +240,12 @@ export function BookScreen({ navigation }: BookScreenProps) {
     await prepareEasypayCheckout(b.id, 'open');
   };
 
-  const onSelectWallet = (w: { code: string; name: string; checkoutAdapter: string }) => {
+  const onSelectWallet = (w: {
+    gatewayId: string;
+    code: string;
+    name: string;
+    checkoutAdapter: string;
+  }) => {
     if (isApsCheckoutAdapter(w.checkoutAdapter)) {
       setYonnaWallet(null);
       setYonnaMobile('');
@@ -253,7 +259,12 @@ export function BookScreen({ navigation }: BookScreenProps) {
     }
     if (easypayWalletNeedsPayerPhone(w)) {
       setApsGateway(null);
-      setYonnaWallet({ code: w.code, name: w.name, checkoutAdapter: w.checkoutAdapter });
+      setYonnaWallet({
+        gatewayId: w.gatewayId,
+        code: w.code,
+        name: w.name,
+        checkoutAdapter: w.checkoutAdapter,
+      });
       setYonnaMobile('');
       return;
     }
@@ -341,7 +352,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
   };
 
   const startWallet = async (
-    w: { code: string; name: string; checkoutAdapter: string },
+    w: { gatewayId: string; code: string; name: string; checkoutAdapter: string },
     opts?: { payerPhone?: string },
   ) => {
     if (!payBooking || !token) return;
@@ -352,7 +363,8 @@ export function BookScreen({ navigation }: BookScreenProps) {
     }
     try {
       setPayWalletLoading(true);
-      const body: { gatewayCode: string; payerPhone?: string } = { gatewayCode: w.code };
+      const body: { gatewayCode: string; payerPhone?: string; gatewayId?: string } = { gatewayCode: w.code };
+      if (w.gatewayId) body.gatewayId = w.gatewayId;
       if (easypayWalletNeedsPayerPhone(w) && payerDigits) body.payerPhone = payerDigits;
       const res = await apiPostAuth<{
         ok: boolean;

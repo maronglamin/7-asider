@@ -723,7 +723,11 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     }
     const userId = req.auth!.userId;
     const id = req.params.id;
-    const { gatewayCode, payerPhone } = (req.body || {}) as { gatewayCode?: string; payerPhone?: string };
+    const { gatewayCode, payerPhone, gatewayId } = (req.body || {}) as {
+      gatewayCode?: string;
+      payerPhone?: string;
+      gatewayId?: string;
+    };
     if (!gatewayCode || typeof gatewayCode !== 'string') {
       return res.status(400).json({ error: 'gatewayCode is required' });
     }
@@ -768,9 +772,11 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     }
     const gc = String(gatewayCode).trim();
     const phoneRaw = payerPhone && String(payerPhone).trim() ? String(payerPhone).trim() : undefined;
+    const gid = gatewayId != null && String(gatewayId).trim() !== '' ? String(gatewayId).trim() : undefined;
     const checkout = await startEasypayWalletCheckout(owner.easypayBusinessId, String(orderId).trim(), {
       gatewayCode: gc,
       ...(phoneRaw && easypayGatewayCodeNeedsPayerPhone(gc) ? { payerPhone: phoneRaw } : {}),
+      ...(gid ? { gatewayId: gid } : {}),
     });
     const merged2 = mergeBookingEasypayMetadata(latestMeta, {
       businessId: owner.easypayBusinessId,

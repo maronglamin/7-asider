@@ -275,19 +275,47 @@ export function easypayGatewayCodeNeedsPayerPhone(gatewayCode: string): boolean 
 export async function startEasypayWalletCheckout(
   businessId: string,
   orderId: string,
-  body: { gatewayCode: string; payerPhone?: string },
+  body: { gatewayCode: string; payerPhone?: string; gatewayId?: string },
 ) {
   const rawPhone = body.payerPhone && String(body.payerPhone).trim() ? String(body.payerPhone).trim() : undefined;
   const phone =
     rawPhone && easypayGatewayCodeNeedsPayerPhone(body.gatewayCode) ? rawPhone : undefined;
-  /** Partner API contract: camelCase only; duplicate keys broke some Easypay builds (Wave checkout 5xx). */
-  const payload: { gatewayCode: string; payerPhone?: string } = { gatewayCode: body.gatewayCode };
-  if (phone) payload.payerPhone = phone;
-  const json = await partnerJson<unknown>(
-    `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/payments/wallet`,
-    { method: 'POST', body: payload },
-  );
-  return normalizeWalletCheckoutFromPartnerResponse(json);
+  const gatewayId =
+    body.gatewayId && String(body.gatewayId).trim() ? String(body.gatewayId).trim() : undefined;
+
+  const path = `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}/payments/wallet`;
+
+  /** Documented camelCase; some Easypay builds only bind snake_case and return 500 on camel. */
+  const camel: Record<string, string> = { gatewayCode: body.gatewayCode };
+  if (phone) camel.payerPhone = phone;
+  if (gatewayId) camel.gatewayId = gatewayId;
+
+  const snake: Record<string, string> = { gateway_code: body.gatewayCode };
+  if (phone) snake.payer_phone = phone;
+  if (gatewayId) snake.gateway_id = gatewayId;
+
+  const attempts = [camel, snake];
+  let lastErr: unknown;
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const json = await partnerJson<unknown>(path, { method: 'POST', body: attempts[i] });
+      return normalizeWalletCheckoutFromPartnerResponse(json);
+    } catch (e: any) {
+      lastErr = e;
+      const st = e?.status;
+      if (st === 500 && i < attempts.length - 1) {
+        console.warn('[easypay] POST payments/wallet returned 500; retrying with alternate JSON casing', {
+          businessId,
+          orderId,
+          gatewayCode: body.gatewayCode,
+          hadGatewayId: Boolean(gatewayId),
+        });
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 /** APS step 1 — Easypay internal partner authorize (tries documented path, then compact path on 404). */
