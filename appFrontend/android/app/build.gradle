@@ -146,7 +146,7 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 28
+        versionCode 29
         versionName expoUpdates.appVersion
         // EAS Update (bare): must match app.json expo.runtimeVersion (string) exactly
         resValue "string", "expo_runtime_version", expoUpdates.runtimeVersion
