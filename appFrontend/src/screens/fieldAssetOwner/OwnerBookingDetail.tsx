@@ -183,12 +183,12 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
               <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
                 <Text style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>
-                  Easypay (or other) payments update here automatically when confirmed.
+                  directPay (or other) payments update here automatically when confirmed.
                 </Text>
               </View>
             ) : (
               <Text style={styles.meta}>
-                Awaiting payment. Customers paying with Easypay do not need to upload a receipt; this screen updates when
+                Awaiting payment. Customers paying with directPay do not need to upload a receipt; this screen updates when
                 payment is confirmed.
               </Text>
             )}

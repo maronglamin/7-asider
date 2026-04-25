@@ -35,7 +35,7 @@ import {
   friendlyEasypayWalletError,
 } from '../utils/easypayBookerMessages';
 
-const easypayMark = require('../../assets/easypay_logo_file.jpeg');
+const easypayMark = require('../../assets/easypay_logo_file2.jpeg');
 
 interface BookScreenProps {
   navigation?: any;
@@ -85,6 +85,8 @@ export function BookScreen({ navigation }: BookScreenProps) {
   } | null>(null);
   const [yonnaMobile, setYonnaMobile] = useState('');
   const payPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /** Synchronous guard — React `loading` state can lag and block `load(true)` right after mount/focus. */
+  const loadInFlightRef = useRef(false);
 
   const clearPayPoll = () => {
     if (payPollRef.current) {
@@ -130,7 +132,9 @@ export function BookScreen({ navigation }: BookScreenProps) {
   useEffect(() => () => clearPayPoll(), []);
 
   const load = async (reset: boolean, opts?: { force?: boolean }) => {
-    if (!token || (!opts?.force && loading)) return;
+    if (!token) return;
+    if (!opts?.force && loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -143,33 +147,23 @@ export function BookScreen({ navigation }: BookScreenProps) {
     } catch (e) {
       // noop
     } finally {
+      loadInFlightRef.current = false;
       setLoading(false);
       if (reset) setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    load(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!token) return;
+    void load(true, { force: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load reads latest nextCursor from render; token is the trigger
   }, [token]);
 
   useFocusEffect(
     useCallback(() => {
       if (!token) return;
-      (async () => {
-        try {
-          const params = new URLSearchParams();
-          params.set('limit', '10');
-          const res = await apiGetAuth<{ items: any[]; nextCursor: string | null }>(
-            `/bookings/mine?${params.toString()}`,
-            token as string,
-          );
-          setItems(res.items || []);
-          setNextCursor(res.nextCursor);
-        } catch {
-          /* noop */
-        }
-      })();
+      void load(true, { force: true });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [token]),
   );
 
@@ -214,7 +208,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
       setEasypayOrder(res.order);
       setEasypayWallets(Array.isArray(res.wallets) ? res.wallets : []);
     } catch (e: any) {
-      const msg = e?.message || 'Could not load Easypay checkout.';
+      const msg = e?.message || 'Could not load directPay checkout.';
       const friendly = friendlyEasypayPrepareError(msg);
       if (mode === 'refresh') {
         setPrepareError(friendly);
@@ -284,7 +278,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const runApsAuthorize = async () => {
     if (!payBooking || !token || !apsGateway) return;
     if (!payBooking.id) {
-      Alert.alert('Payment', 'Missing booking id. Close this sheet and tap Pay with Easypay again.');
+      Alert.alert('Payment', 'Missing booking id. Close this sheet and tap Pay with directPay again.');
       return;
     }
     const digits = apsMobile.replace(/\D/g, '');
@@ -325,7 +319,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
       await apiPostAuth(`/bookings/${payBooking.id}/easypay/aps/complete`, body, token as string);
       Alert.alert(
         'Payment submitted',
-        'If Easypay confirms the payment, this screen will update to Paid automatically within a short time.',
+        'If directPay confirms the payment, this screen will update to Paid automatically within a short time.',
       );
       const paidId = payBooking.id;
       setPayVisible(false);
@@ -391,8 +385,8 @@ export function BookScreen({ navigation }: BookScreenProps) {
       Alert.alert(
         'Complete payment',
         easypayWalletIsWave(w)
-          ? 'Finish the payment in the Wave app or browser. This booking will show as Paid when Easypay confirms the transfer.'
-          : 'Finish the payment in your wallet app or browser. This list will update to Paid automatically when Easypay confirms the transfer.',
+          ? 'Finish the payment in the Wave app or browser. This booking will show as Paid when directPay confirms the transfer.'
+          : 'Finish the payment in your wallet app or browser. This list will update to Paid automatically when directPay confirms the transfer.',
       );
       setPayVisible(false);
       clearApsCheckout();
@@ -419,7 +413,9 @@ export function BookScreen({ navigation }: BookScreenProps) {
       <ScrollView
         style={styles.content}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(true); }} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true, { force: true }); }} />
+        }
         onScroll={({ nativeEvent }) => {
           const paddingToBottom = 200;
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
@@ -494,7 +490,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         activeOpacity={0.8}
                       >
                         <CreditCard size={16} color="#ffffff" />
-                        <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay with Easypay</Text>
+                        <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay with directPay</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
@@ -558,7 +554,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
             ]}
           >
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Pay with Easypay</Text>
+            <Text style={styles.sheetTitle}>Pay with directPay</Text>
             <ScrollView
               style={styles.easypaySheetScroll}
               contentContainerStyle={[
@@ -619,7 +615,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                       {apsStep === 'mobile' ? (
                         <View style={{ gap: 10 }}>
                           <Text style={{ fontSize: 14, color: '#4b5563', lineHeight: 20 }}>
-                            Enter the mobile number linked to your APS wallet. Easypay will send or confirm an OTP where
+                            Enter the mobile number linked to your APS wallet. directPay will send or confirm an OTP where
                             required.
                           </Text>
                           <TextInput
@@ -783,7 +779,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         source={easypayMark}
                         style={styles.easypaySheetFooterLogo}
                         resizeMode="contain"
-                        accessibilityLabel="EasyPay"
+                        accessibilityLabel="directPay"
                       />
                     </View>
                   </View>

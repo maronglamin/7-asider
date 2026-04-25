@@ -4,7 +4,7 @@ const waveLogo = require('../../assets/wave.jpeg') as ImageSourcePropType;
 const yonnaLogo = require('../../assets/yonna_wallet.jpeg') as ImageSourcePropType;
 const apsLogo = require('../../assets/aps_wallet.jpeg') as ImageSourcePropType;
 
-/** Static assets for marketing / EasyPay link screen (fixed order). */
+/** Static assets for marketing / directPay link screen (fixed order). */
 export const easypayBrandLogos = {
   wave: waveLogo,
   yonna: yonnaLogo,

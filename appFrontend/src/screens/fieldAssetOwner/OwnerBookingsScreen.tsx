@@ -141,7 +141,7 @@ export default function OwnerBookingsScreen() {
                 </View>
               </View>
             ) : (
-              <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '600' }}>Awaiting customer payment (Easypay updates automatically)</Text>
+              <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '600' }}>Awaiting customer payment (directPay updates automatically)</Text>
             )}
           </View>
         </View>

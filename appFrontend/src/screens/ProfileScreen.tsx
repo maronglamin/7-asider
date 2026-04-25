@@ -70,7 +70,7 @@ export function ProfileScreen() {
     ...(user?.supadmin ? [{ label: 'Super Admin', icon: ShieldCheck, onPress: () => navigation.navigate('SuperAdmin' as never) }] : []),
     ...(hasKyc ? [{ label: 'Bookings', icon: Wallet, onPress: () => navigation.navigate('OwnerBookings' as never) }] : []),
     ...(hasKyc
-      ? [{ label: 'Link To EasyPay', icon: Link2, onPress: () => navigation.navigate('LinkEasypay' as never) }]
+      ? [{ label: 'Link To directPay', icon: Link2, onPress: () => navigation.navigate('LinkEasypay' as never) }]
       : []),
     {
       label: 'Profile Information',

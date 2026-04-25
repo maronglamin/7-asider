@@ -50,14 +50,14 @@ router.get('/onboarding', requireAuth, async (req: AuthedRequest, res: Response)
       hasApprovedField: approvedFields > 0,
       hint:
         approvedFields === 0
-          ? 'After your first field is approved, you can link Easypay to receive in-app payments.'
+          ? 'After your first field is approved, you can link directPay to receive in-app payments.'
           : user.easypayBusinessId
-            ? 'Your Easypay merchant is linked. Customers can pay bookings with Easypay checkout.'
-            : 'Complete linking to create your Easypay merchant and accept wallet payments.',
+            ? 'Your directPay merchant is linked. Customers can pay bookings with directPay checkout.'
+            : 'Complete linking to create your directPay merchant and accept wallet payments.',
     });
   } catch (e: any) {
     console.error('[GET /easypay/onboarding]', e);
-    res.status(500).json({ error: e.message || 'Failed to load Easypay status' });
+    res.status(500).json({ error: e.message || 'Failed to load directPay status' });
   }
 });
 
@@ -66,7 +66,7 @@ router.post('/onboarding', requireAuth, async (req: AuthedRequest, res: Response
   try {
     const { configured } = getEasypayPartnerConfig();
     if (!configured) {
-      return res.status(503).json({ error: 'Easypay partner API is not configured on this server.' });
+      return res.status(503).json({ error: 'directPay partner API is not configured on this server.' });
     }
     const userId = req.auth!.userId;
     const user = await prisma.user.findUnique({
@@ -87,7 +87,7 @@ router.post('/onboarding', requireAuth, async (req: AuthedRequest, res: Response
     });
     if (approvedFields === 0) {
       return res.status(400).json({
-        error: 'You need at least one approved field before linking Easypay.',
+        error: 'You need at least one approved field before linking directPay.',
       });
     }
     const businessName = easypayBusinessNameFromProfile(user);
@@ -112,10 +112,10 @@ router.post('/onboarding', requireAuth, async (req: AuthedRequest, res: Response
       subscriptionId: data.subscriptionId,
     });
   } catch (e: any) {
-    const msg = e?.message || 'Easypay provision failed';
+    const msg = e?.message || 'directPay provision failed';
     console.error('[POST /easypay/onboarding]', msg, e?.body || '');
     if ((e as any)?.code === 'EASYPAY_NOT_CONFIGURED') {
-      return res.status(503).json({ error: 'Easypay partner API is not configured on this server.' });
+      return res.status(503).json({ error: 'directPay partner API is not configured on this server.' });
     }
     res.status(502).json({ error: msg });
   }

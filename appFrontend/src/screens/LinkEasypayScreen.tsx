@@ -27,8 +27,8 @@ type OnboardingStatus = {
   hint?: string;
 };
 
-/** Same inline row layout as Book → Easypay payment sheet (logo + title + subtitle). */
-const easypayMark = require('../../assets/easypay_logo_file.jpeg');
+/** Same inline row layout as Book → directPay payment sheet (logo + title + subtitle). */
+const easypayMark = require('../../assets/easypay_logo_file2.jpeg');
 
 const LINK_WALLET_ROWS = [
   { key: 'aps', name: 'APS Wallet', subtitle: 'Pay in app', source: easypayBrandLogos.aps },
@@ -41,8 +41,8 @@ function friendlyPostError(message: string): string {
   if (/not configured|503/i.test(m)) {
     return 'Online payments are not available in this app yet. Please try again later or contact support.';
   }
-  if (/approved field/i.test(m)) {
-    return 'Once your first field is approved, you can connect EasyPay here.';
+  if (/approved field|linking (easypay|directpay)/i.test(m)) {
+    return 'Once your first field is approved, you can connect directPay here.';
   }
   return 'We could not finish connecting. Please try again in a moment.';
 }
@@ -65,7 +65,7 @@ export default function LinkEasypayScreen() {
       const res = await apiGetAuth<OnboardingStatus>('/easypay/onboarding', token as string);
       setStatus(res);
     } catch {
-      Alert.alert('EasyPay', 'We could not load your status. Check your connection and try again.');
+      Alert.alert('directPay', 'We could not load your status. Check your connection and try again.');
       setStatus(null);
     } finally {
       setLoading(false);
@@ -86,7 +86,7 @@ export default function LinkEasypayScreen() {
       await refresh();
       Alert.alert('All set', 'You can now receive payments from bookings.');
     } catch (e: any) {
-      Alert.alert('EasyPay', friendlyPostError(e?.message));
+      Alert.alert('directPay', friendlyPostError(e?.message));
     } finally {
       setLinking(false);
     }
@@ -102,7 +102,7 @@ export default function LinkEasypayScreen() {
         <TouchableOpacity onPress={() => (navigation as any).goBack()} style={styles.backBtn} hitSlop={12}>
           <ChevronLeft size={28} color="#111827" />
         </TouchableOpacity>
-        <Text style={styles.topTitle}>EasyPay</Text>
+        <Text style={styles.topTitle}>directPay</Text>
         <View style={{ width: 36 }} />
       </View>
 
@@ -182,7 +182,7 @@ export default function LinkEasypayScreen() {
                 {linking ? (
                   <ActivityIndicator color="#ffffff" />
                 ) : (
-                  <Text style={styles.primaryText}>Connect EasyPay</Text>
+                  <Text style={styles.primaryText}>Connect directPay</Text>
                 )}
               </TouchableOpacity>
             ) : null}
@@ -205,7 +205,7 @@ export default function LinkEasypayScreen() {
                   source={easypayMark}
                   style={styles.easypayFooterLogo}
                   resizeMode="contain"
-                  accessibilityLabel="EasyPay"
+                  accessibilityLabel="directPay"
                 />
               </View>
             </View>

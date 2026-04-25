@@ -640,7 +640,7 @@ router.patch('/:id/payment', requireAuth, async (req: AuthedRequest, res: Respon
 router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     if (!getEasypayPartnerConfig().configured) {
-      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+      return res.status(503).json({ error: 'directPay payments are not configured on this server.' });
     }
     const userId = req.auth!.userId;
     const id = req.params.id;
@@ -666,7 +666,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
     if (!owner?.easypayBusinessId) {
       return res.status(409).json({
         error:
-          'This field cannot accept Easypay payments yet. Ask the field owner to open Profile → Link To EasyPay.',
+          'This field cannot accept directPay payments yet. Ask the field owner to open Profile → Link To directPay.',
       });
     }
     const amountGmd = Number(booking.totalAmount);
@@ -705,13 +705,13 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       ...(wallets.length === 0
         ? {
             prepareHint:
-              'The field owner still needs to enable a payout option in EasyPay before customers can pay online for this booking.',
+              'The field owner still needs to enable a payout option in directPay before customers can pay online for this booking.',
           }
         : {}),
     });
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/prepare]', e?.message || e);
-    res.status(502).json({ error: e?.message || 'Easypay prepare failed' });
+    res.status(502).json({ error: e?.message || 'directPay prepare failed' });
   }
 });
 
@@ -719,7 +719,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
 router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     if (!getEasypayPartnerConfig().configured) {
-      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+      return res.status(503).json({ error: 'directPay payments are not configured on this server.' });
     }
     const userId = req.auth!.userId;
     const id = req.params.id;
@@ -746,7 +746,7 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
       select: { easypayBusinessId: true },
     });
     if (!owner?.easypayBusinessId) {
-      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+      return res.status(409).json({ error: 'Field owner is not linked to directPay.' });
     }
     const meta = booking.metadata && typeof booking.metadata === 'object' ? booking.metadata : {};
     let orderId = (meta as any)?.easypay?.orderId as string | undefined;
@@ -815,7 +815,7 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
 router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     if (!getEasypayPartnerConfig().configured) {
-      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+      return res.status(503).json({ error: 'directPay payments are not configured on this server.' });
     }
     const userId = req.auth!.userId;
     const id = req.params.id;
@@ -843,7 +843,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
       select: { easypayBusinessId: true },
     });
     if (!owner?.easypayBusinessId) {
-      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+      return res.status(409).json({ error: 'Field owner is not linked to directPay.' });
     }
     let orderId: string;
     try {
@@ -851,7 +851,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
       orderId = ensured.orderId;
     } catch (e: any) {
       console.error('[POST /bookings/:id/easypay/aps/authorize] ensure order', e?.message || e);
-      return res.status(502).json({ error: e?.message || 'Could not create Easypay order for this booking.' });
+      return res.status(502).json({ error: e?.message || 'Could not create directPay order for this booking.' });
     }
     console.log('[POST /bookings/:id/easypay/aps/authorize]', { bookingId: id, orderId, businessId: owner.easypayBusinessId });
     const out = await authorizeEasypayApsWallet(owner.easypayBusinessId, orderId, {
@@ -859,7 +859,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
       payerMobile: mobile,
     });
     if (!out.authState) {
-      return res.status(502).json({ error: 'Easypay APS authorize did not return authState.' });
+      return res.status(502).json({ error: 'directPay APS authorize did not return authState.' });
     }
     res.json({
       ok: true,
@@ -868,7 +868,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
     });
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/aps/authorize]', e?.message || e);
-    res.status(502).json({ error: e?.message || 'Easypay APS authorize failed' });
+    res.status(502).json({ error: e?.message || 'directPay APS authorize failed' });
   }
 });
 
@@ -876,7 +876,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
 router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     if (!getEasypayPartnerConfig().configured) {
-      return res.status(503).json({ error: 'Easypay payments are not configured on this server.' });
+      return res.status(503).json({ error: 'directPay payments are not configured on this server.' });
     }
     const userId = req.auth!.userId;
     const id = req.params.id;
@@ -907,7 +907,7 @@ router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest,
       select: { easypayBusinessId: true },
     });
     if (!owner?.easypayBusinessId) {
-      return res.status(409).json({ error: 'Field owner is not linked to Easypay.' });
+      return res.status(409).json({ error: 'Field owner is not linked to directPay.' });
     }
     let orderId: string;
     let latestMetaForMerge: unknown;
@@ -917,7 +917,7 @@ router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest,
       latestMetaForMerge = ensured.latestMeta;
     } catch (e: any) {
       console.error('[POST /bookings/:id/easypay/aps/complete] ensure order', e?.message || e);
-      return res.status(502).json({ error: e?.message || 'Could not create Easypay order for this booking.' });
+      return res.status(502).json({ error: e?.message || 'Could not create directPay order for this booking.' });
     }
     const body: { gatewayCode: string; authState: string; otp?: string } = { gatewayCode, authState };
     if (otp != null && String(otp).trim() !== '') body.otp = String(otp).trim();
@@ -929,7 +929,7 @@ router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest,
     res.json({ ok: true, data });
   } catch (e: any) {
     console.error('[POST /bookings/:id/easypay/aps/complete]', e?.message || e);
-    res.status(502).json({ error: e?.message || 'Easypay APS complete failed' });
+    res.status(502).json({ error: e?.message || 'directPay APS complete failed' });
   }
 });
 
