@@ -19,17 +19,20 @@ npm run build:web
 
 This creates the static web build in `appFrontend/dist`.
 
-## 2. Copy the build to the server web root
+## 2. Put the frontend app on the server
 
-On the server:
+Place or update the frontend app at `/var/www/7-aside/appFrontend`, then build it there:
 
 ```bash
 sudo mkdir -p /var/www/7-aside/appFrontend
-sudo rsync -a --delete /path/to/appFrontend/dist/ /var/www/7-aside/appFrontend/
+sudo rsync -a --delete /path/to/appFrontend/ /var/www/7-aside/appFrontend/
+cd /var/www/7-aside/appFrontend
+npm install
+npm run build:web
 sudo chown -R www-data:www-data /var/www/7-aside/appFrontend
 ```
 
-Adjust `/path/to/appFrontend/dist/` to wherever the repository or build artifact exists on the server.
+Adjust `/path/to/appFrontend/` to wherever the repository or build artifact exists on the server. Nginx serves `/var/www/7-aside/appFrontend/dist`, so `index.html` must exist at `/var/www/7-aside/appFrontend/dist/index.html`.
 
 ## 3. Enable the frontend Nginx site
 
@@ -62,3 +65,16 @@ curl -I https://seven-aside.phantommetrics.gm/health
 ```
 
 The first command should return the web app, and the second should return the backend health response.
+
+## 6. Fix a 403 response
+
+If Nginx returns `403 Forbidden`, check that the build exists and Nginx can read it:
+
+```bash
+ls -la /var/www/7-aside/appFrontend/dist/index.html
+sudo namei -l /var/www/7-aside/appFrontend/dist/index.html
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+If `dist/index.html` is missing, rerun `npm run build:web` in `/var/www/7-aside/appFrontend`.
