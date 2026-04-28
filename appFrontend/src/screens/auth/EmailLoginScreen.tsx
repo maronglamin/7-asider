@@ -97,9 +97,9 @@ const styles = StyleSheet.create({
   inputContainer: { marginBottom: 24 },
   inputLabel: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 8 },
   input: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 16, fontSize: 16, color: '#111827' },
-  forgotPasswordButton: { marginHorizontal: 32, marginTop: -4, marginBottom: 20, alignSelf: 'flex-end', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', alignItems: 'flex-end', width: '100%', maxWidth: 696 } as any) : null) },
+  forgotPasswordButton: { marginHorizontal: 32, marginTop: -4, marginBottom: 20, alignSelf: 'flex-end', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', alignItems: 'flex-end', width: 'calc(100% - 64px)', maxWidth: 696 } as any) : null) },
   forgotPasswordText: { color: '#16a34a', fontSize: 14, fontWeight: '600' },
-  loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 696 } as any) : null) },
+  loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: 'calc(100% - 64px)', maxWidth: 696 } as any) : null) },
   loginButtonDisabled: { backgroundColor: '#d1d5db' },
   loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
 });

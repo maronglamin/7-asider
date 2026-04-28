@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
+  ScrollView,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Mail, ArrowRight } from 'lucide-react-native';
@@ -25,32 +26,38 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
     <SafeAreaView style={styles.container} edges={['top','bottom']}>
       <StatusBar style="light" />
       
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <Text style={styles.title}>Welcome to 7a-side</Text>
-        <Text style={styles.subtitle}>Sign in to book fields and join matches</Text>
-      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <Text style={styles.title}>Welcome to 7a-side</Text>
+          <Text style={styles.subtitle}>Sign in to book fields and join matches</Text>
+        </View>
 
-      {/* Login Options */}
-      <View style={styles.content}>
+        {/* Login Options */}
+        <View style={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
 
-        {/* Email Registration */}
-        <TouchableOpacity style={styles.emailButton} onPress={handleEmailLogin}>
-          <Mail size={20} color="#16a34a" />
-          <Text style={styles.emailButtonText}>Sign up with Email</Text>
-          <ArrowRight size={20} color="#16a34a" />
-        </TouchableOpacity>
+          {/* Email Registration */}
+          <TouchableOpacity style={styles.emailButton} onPress={handleEmailLogin}>
+            <Mail size={20} color="#16a34a" />
+            <Text style={styles.emailButtonText}>Sign up with Email</Text>
+            <ArrowRight size={20} color="#16a34a" />
+          </TouchableOpacity>
 
-        {/* Email Sign In */}
-        <TouchableOpacity style={styles.emailButtonAlt} onPress={() => navigation?.navigate('EmailLogin')}>
-          <Text style={styles.emailButtonAltText}>Already have an account? Sign in</Text>
-        </TouchableOpacity>
+          {/* Email Sign In */}
+          <TouchableOpacity style={styles.emailButtonAlt} onPress={() => navigation?.navigate('EmailLogin')}>
+            <Text style={styles.emailButtonAltText}>Already have an account? Sign in</Text>
+          </TouchableOpacity>
 
-        {/* Terms */}
-        <Text style={styles.termsText}>
-          By continuing, you agree to our Terms of Service and Privacy Policy
-        </Text>
-      </View>
+          {/* Terms */}
+          <Text style={styles.termsText}>
+            By continuing, you agree to our Terms of Service and Privacy Policy
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -59,6 +66,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#16a34a',
+  },
+  scroll: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   header: {
     paddingHorizontal: 32,

@@ -156,6 +156,7 @@ export function MatchesScreen() {
       {/* Content */}
       <ScrollView
         style={styles.content}
+        contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}
         onScroll={({ nativeEvent }) => {
@@ -278,13 +279,16 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 16,
     backgroundColor: '#f9fafb',
+  },
+  contentContainer: {
+    padding: 16,
     ...(Platform.OS === 'web'
       ? ({
           alignSelf: 'center',
           width: '100%',
           maxWidth: 1120,
+          boxSizing: 'border-box',
         } as any)
       : null),
   },
@@ -302,7 +306,10 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           flexGrow: 1,
-          flexBasis: 360,
+          flexShrink: 1,
+          flexBasis: 320,
+          minWidth: 0,
+          width: '100%',
           maxWidth: 552,
         } as any)
       : null),
