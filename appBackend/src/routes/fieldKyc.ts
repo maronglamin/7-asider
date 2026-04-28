@@ -1,19 +1,22 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
-import fs from 'fs';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
+import { ensureUploadDirectory, uploadPath } from '../utils/uploads';
 
 const router = Router();
 
-const uploadDir = path.join(process.cwd(), 'uploads', 'fields');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+const uploadDir = ensureUploadDirectory(uploadPath('fields'));
 
 const storage = multer.diskStorage({
-  destination: (_req: any, _file: any, cb: any) => cb(null, uploadDir),
+  destination: (_req: any, _file: any, cb: any) => {
+    try {
+      cb(null, ensureUploadDirectory(uploadDir));
+    } catch (error) {
+      cb(error as Error, uploadDir);
+    }
+  },
   filename: (_req: any, file: any, cb: any) => {
     const ext = path.extname(file.originalname) || '.jpg';
     const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '');
