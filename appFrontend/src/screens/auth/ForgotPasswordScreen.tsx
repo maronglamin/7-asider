@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Mail } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -96,6 +96,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
+    ...(Platform.OS === 'web' ? ({ alignItems: 'center' } as any) : null),
   },
   card: {
     backgroundColor: '#ffffff',
@@ -103,6 +104,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
     padding: 20,
+    ...(Platform.OS === 'web' ? ({ width: '100%', maxWidth: 640 } as any) : null),
   },
   iconWrap: {
     width: 48,

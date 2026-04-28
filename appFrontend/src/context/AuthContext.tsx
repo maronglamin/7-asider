@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import { deleteAuthStorageItem, getAuthStorageItem, setAuthStorageItem } from '../utils/authStorage';
 
 type User = { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } | null;
 
@@ -21,23 +21,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const setAuth = (u: User, t: string) => {
     setUser(u);
     setToken(t);
-    SecureStore.setItemAsync('auth_user', JSON.stringify(u)).catch(() => {});
-    SecureStore.setItemAsync('auth_token', t).catch(() => {});
+    setAuthStorageItem('auth_user', JSON.stringify(u)).catch(() => {});
+    setAuthStorageItem('auth_token', t).catch(() => {});
   };
 
   const clearAuth = () => {
     setUser(null);
     setToken(null);
-    SecureStore.deleteItemAsync('auth_user').catch(() => {});
-    SecureStore.deleteItemAsync('auth_token').catch(() => {});
+    deleteAuthStorageItem('auth_user').catch(() => {});
+    deleteAuthStorageItem('auth_token').catch(() => {});
   };
 
   useEffect(() => {
     (async () => {
       try {
         const [u, t] = await Promise.all([
-          SecureStore.getItemAsync('auth_user'),
-          SecureStore.getItemAsync('auth_token'),
+          getAuthStorageItem('auth_user'),
+          getAuthStorageItem('auth_token'),
         ]);
         if (u && t) {
           setUser(JSON.parse(u));

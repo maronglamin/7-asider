@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { apiPost } from '../../api/client';
@@ -203,6 +204,7 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: 32,
     paddingBottom: 32,
+    ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 760 } as any) : null),
   },
   backButton: {
     width: 40,
@@ -233,6 +235,7 @@ const styles = StyleSheet.create({
   },
   form: {
     padding: 32,
+    ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 760 } as any) : null),
   },
   inputContainer: {
     marginBottom: 24,

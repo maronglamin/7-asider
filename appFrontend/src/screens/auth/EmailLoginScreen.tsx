@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft } from 'lucide-react-native';
 import { apiPost } from '../../api/client';
@@ -92,14 +92,14 @@ const styles = StyleSheet.create({
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   title: { fontSize: 28, fontWeight: 'bold', color: '#ffffff', marginBottom: 8 },
   subtitle: { fontSize: 16, color: '#dcfce7', lineHeight: 22 },
-  content: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 50 },
-  form: { padding: 32 },
+  content: { flex: 1, backgroundColor: '#ffffff', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingBottom: 50, ...(Platform.OS === 'web' ? ({ alignItems: 'center' } as any) : null) },
+  form: { padding: 32, ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 760 } as any) : null) },
   inputContainer: { marginBottom: 24 },
   inputLabel: { fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 8 },
   input: { backgroundColor: '#f9fafb', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 16, fontSize: 16, color: '#111827' },
-  forgotPasswordButton: { marginHorizontal: 32, marginTop: -4, marginBottom: 20, alignSelf: 'flex-end' },
+  forgotPasswordButton: { marginHorizontal: 32, marginTop: -4, marginBottom: 20, alignSelf: 'flex-end', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', alignItems: 'flex-end', width: '100%', maxWidth: 696 } as any) : null) },
   forgotPasswordText: { color: '#16a34a', fontSize: 14, fontWeight: '600' },
-  loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center' },
+  loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 696 } as any) : null) },
   loginButtonDisabled: { backgroundColor: '#d1d5db' },
   loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
 });

@@ -1,0 +1,19 @@
+{
+  "name": "7a-side",
+  "short_name": "7a-side",
+  "description": "Book and manage 7-a-side football matches.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#16a34a",
+  "background_color": "#16a34a",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -131,13 +131,21 @@ export default function UsersScreen({ navigation }: { navigation?: any }) {
       <View style={styles.content}>
         {/* Filters */}
         <View style={styles.filters}>
-          <TouchableOpacity style={styles.inputWrap} activeOpacity={0.8} onPress={() => setShowStartPicker(true)}>
+          <TouchableOpacity style={styles.inputWrap} activeOpacity={0.8} onPress={() => Platform.OS !== 'web' && setShowStartPicker(true)}>
             <Calendar size={16} color="#6b7280" />
-            <Text style={styles.inputText}>{start || 'Start YYYY-MM-DD'}</Text>
+            {Platform.OS === 'web' ? (
+              <TextInput value={start} onChangeText={setStart} style={styles.input} placeholder="Start YYYY-MM-DD" />
+            ) : (
+              <Text style={styles.inputText}>{start || 'Start YYYY-MM-DD'}</Text>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.inputWrap} activeOpacity={0.8} onPress={() => setShowEndPicker(true)}>
+          <TouchableOpacity style={styles.inputWrap} activeOpacity={0.8} onPress={() => Platform.OS !== 'web' && setShowEndPicker(true)}>
             <Calendar size={16} color="#6b7280" />
-            <Text style={styles.inputText}>{end || 'End YYYY-MM-DD'}</Text>
+            {Platform.OS === 'web' ? (
+              <TextInput value={end} onChangeText={setEnd} style={styles.input} placeholder="End YYYY-MM-DD" />
+            ) : (
+              <Text style={styles.inputText}>{end || 'End YYYY-MM-DD'}</Text>
+            )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.applyBtn} onPress={applyFilters} activeOpacity={0.8}>
             <Text style={styles.applyText}>Apply</Text>
@@ -165,7 +173,7 @@ export default function UsersScreen({ navigation }: { navigation?: any }) {
           />
         )}
       </View>
-      {showStartPicker && (
+      {Platform.OS !== 'web' && showStartPicker && (
         <DateTimePicker
           value={start ? new Date(start) : new Date()}
           mode="date"
@@ -176,7 +184,7 @@ export default function UsersScreen({ navigation }: { navigation?: any }) {
           }}
         />
       )}
-      {showEndPicker && (
+      {Platform.OS !== 'web' && showEndPicker && (
         <DateTimePicker
           value={end ? new Date(end) : new Date()}
           mode="date"

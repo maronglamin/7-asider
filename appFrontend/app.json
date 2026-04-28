@@ -40,6 +40,19 @@
         "android.permission.WRITE_EXTERNAL_STORAGE"
       ]
     },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/icon.png",
+      "name": "7a-side",
+      "shortName": "7a-side",
+      "description": "Book and manage 7-a-side football matches.",
+      "themeColor": "#16a34a",
+      "backgroundColor": "#16a34a",
+      "display": "standalone",
+      "startUrl": "/",
+      "scope": "/"
+    },
     "extra": {
       "eas": {
         "projectId": "394688a9-1f34-4a6b-b27c-7265b4536f1c"

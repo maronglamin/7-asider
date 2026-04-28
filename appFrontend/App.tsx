@@ -47,9 +47,14 @@ import { BottomTabBar } from './src/components/BottomTabBar';
 import { AppReleaseSheet, ReleaseNotice } from './src/components/AppReleaseSheet';
 import { AuthProvider } from './src/context/AuthContext';
 import { apiGet } from './src/api/client';
+import { registerServiceWorker } from './src/pwa/registerServiceWorker';
+import { installWebNativeCompat } from './src/utils/webNativeCompat';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
+
+installWebNativeCompat();
+registerServiceWorker();
 
 type ReleaseResponse = ReleaseNotice & {
   currentVersion?: string | null;
@@ -115,6 +120,30 @@ const appErrorStyles = StyleSheet.create({
   },
   title: { color: '#fff', fontSize: 18, fontWeight: '600', marginBottom: 8 },
   detail: { color: '#dcfce7', fontSize: 14 },
+});
+
+const appShellStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: Platform.OS === 'web' ? '#f9fafb' : '#16a34a',
+    ...(Platform.OS === 'web' ? { alignItems: 'center' } : null),
+  },
+  shell: {
+    flex: 1,
+    width: '100%',
+    backgroundColor: '#ffffff',
+    ...(Platform.OS === 'web'
+      ? ({
+          maxWidth: 1180,
+          minHeight: '100vh',
+          alignSelf: 'center',
+          shadowColor: '#000000',
+          shadowOpacity: 0.08,
+          shadowRadius: 20,
+          shadowOffset: { width: 0, height: 6 },
+        } as any)
+      : null),
+  },
 });
 
 function MainTabs() {
@@ -235,52 +264,54 @@ export default function App() {
 
   return (
     <AppErrorBoundary>
-    <GestureHandlerRootView style={{ flex: 1 }}>
-    <SafeAreaProvider>
-      <AuthProvider>
-        <NavigationContainer>
-          <StatusBar style="light" />
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-            }}
-            initialRouteName="Onboarding"
-          >
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-            <Stack.Screen name="Register" component={RegisterScreen} />
-            <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen name="Booking" component={BookingScreen} />
-            <Stack.Screen name="MyFields" component={MyFieldsScreen} />
-            <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
-            <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
-          <Stack.Screen name="FindField" component={FindFieldScreen} />
-          <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
-          <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
-          <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
-          <Stack.Screen name="UserInfo" component={UserInfoScreen} />
-          <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
-          <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
-          <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
-          <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
-          <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
-          <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
-          <Stack.Screen name="Users" component={UsersScreen} />
-          <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
-          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
-          <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
-          <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-        <AppReleaseSheet
-          notice={releaseNotice}
-          onDismiss={handleDismissRelease}
-          onUpdate={handleUpdateRelease}
-        />
-      </AuthProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={appShellStyles.root}>
+      <View style={appShellStyles.shell}>
+        <SafeAreaProvider>
+          <AuthProvider>
+            <NavigationContainer>
+              <StatusBar style="light" />
+              <Stack.Navigator
+                screenOptions={{
+                  headerShown: false,
+                }}
+                initialRouteName="Onboarding"
+              >
+                <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
+                <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+                <Stack.Screen name="Register" component={RegisterScreen} />
+                <Stack.Screen name="Main" component={MainTabs} />
+                <Stack.Screen name="Booking" component={BookingScreen} />
+                <Stack.Screen name="MyFields" component={MyFieldsScreen} />
+                <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
+                <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
+                <Stack.Screen name="FindField" component={FindFieldScreen} />
+                <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
+                <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
+                <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
+                <Stack.Screen name="UserInfo" component={UserInfoScreen} />
+                <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
+                <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+                <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
+                <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
+                <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
+                <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
+                <Stack.Screen name="Users" component={UsersScreen} />
+                <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
+                <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+                <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
+                <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
+              </Stack.Navigator>
+            </NavigationContainer>
+            <AppReleaseSheet
+              notice={releaseNotice}
+              onDismiss={handleDismissRelease}
+              onUpdate={handleUpdateRelease}
+            />
+          </AuthProvider>
+        </SafeAreaProvider>
+      </View>
     </GestureHandlerRootView>
     </AppErrorBoundary>
   );

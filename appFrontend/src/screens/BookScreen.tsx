@@ -463,7 +463,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                 price,
               };
               return (
-                <View key={b.id}>
+                <View key={b.id} style={styles.fieldCardColumn}>
                   <FieldCard
                     field={card}
                     showRating={false}
@@ -843,6 +843,13 @@ const styles = StyleSheet.create({
   actionsContainer: {
     padding: 16,
     gap: 12,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 1120,
+        } as any)
+      : null),
   },
   recentFilters: {
     flexDirection: 'row',
@@ -917,6 +924,13 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 16,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 1120,
+        } as any)
+      : null),
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -936,6 +950,22 @@ const styles = StyleSheet.create({
   },
   fieldsList: {
     gap: 16,
+    ...(Platform.OS === 'web'
+      ? ({
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          alignItems: 'stretch',
+        } as any)
+      : null),
+  },
+  fieldCardColumn: {
+    ...(Platform.OS === 'web'
+      ? ({
+          flexGrow: 1,
+          flexBasis: 360,
+          maxWidth: 552,
+        } as any)
+      : null),
   },
   emptyText: {
     textAlign: 'center',

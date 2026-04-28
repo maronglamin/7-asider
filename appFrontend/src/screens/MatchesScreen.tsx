@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Plus } from 'lucide-react-native';
@@ -183,14 +184,17 @@ export function MatchesScreen() {
       >
         {activeTab === 'upcoming' ? (
           (loading ? false : upcomingMatches.length > 0) ? (
-            upcomingMatches.map((match) => (
-              <MatchCard
-                key={match.id}
-                match={match}
-                type="upcoming"
-                onPrimaryPress={() => navigation.navigate('CustomerBookedDetails', { booking: match.raw })}
-              />
-            ))
+            <View style={styles.cardsGrid}>
+              {upcomingMatches.map((match) => (
+                <View key={match.id} style={styles.cardColumn}>
+                  <MatchCard
+                    match={match}
+                    type="upcoming"
+                    onPrimaryPress={() => navigation.navigate('CustomerBookedDetails', { booking: match.raw })}
+                  />
+                </View>
+              ))}
+            </View>
           ) : (
             <View style={styles.emptyState}>
               <Text style={styles.emptyEmoji}>⚽</Text>
@@ -201,9 +205,13 @@ export function MatchesScreen() {
             </View>
           )
         ) : (loading ? false : pastMatches.length > 0) ? (
-          pastMatches.map((match) => (
-            <MatchCard key={match.id} match={match} type="past" onPrimaryPress={() => match.fieldId && navigation.navigate('Booking', { fieldId: match.fieldId })} />
-          ))
+          <View style={styles.cardsGrid}>
+            {pastMatches.map((match) => (
+              <View key={match.id} style={styles.cardColumn}>
+                <MatchCard match={match} type="past" onPrimaryPress={() => match.fieldId && navigation.navigate('Booking', { fieldId: match.fieldId })} />
+              </View>
+            ))}
+          </View>
         ) : (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No past matches</Text>
@@ -272,6 +280,32 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
     backgroundColor: '#f9fafb',
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 1120,
+        } as any)
+      : null),
+  },
+  cardsGrid: {
+    ...(Platform.OS === 'web'
+      ? ({
+          flexDirection: 'row',
+          flexWrap: 'wrap',
+          gap: 16,
+          alignItems: 'stretch',
+        } as any)
+      : null),
+  },
+  cardColumn: {
+    ...(Platform.OS === 'web'
+      ? ({
+          flexGrow: 1,
+          flexBasis: 360,
+          maxWidth: 552,
+        } as any)
+      : null),
   },
   emptyState: {
     alignItems: 'center',

@@ -19,7 +19,7 @@ export default function RegisterFieldScreen({ navigation }: any) {
   const [pricePerHour, setPricePerHour] = useState('');
   const [hasLights, setHasLights] = useState(false);
   const [description, setDescription] = useState('');
-  const [pickedImages, setPickedImages] = useState<Array<{ uri: string; name: string; type: string }>>([]);
+  const [pickedImages, setPickedImages] = useState<Array<{ uri: string; name: string; type: string; file?: File }>>([]);
   const [step, setStep] = useState(1 as 1 | 2 | 3);
   const [submitting, setSubmitting] = useState(false);
 
@@ -44,12 +44,12 @@ export default function RegisterFieldScreen({ navigation }: any) {
         quality: 0.9,
       });
       if (!result.canceled && Array.isArray(result.assets) && result.assets.length > 0 && result.assets[0] && result.assets[0].uri) {
-        const a = result.assets[0] as { uri: string; fileName?: string; mimeType?: string };
+        const a = result.assets[0] as { uri: string; fileName?: string; mimeType?: string; file?: File };
         const uri = a.uri;
-        const fileName = a.fileName || uri.split('/').pop()?.split('?')[0] || `field_${Date.now()}.jpg`;
-        const mimeType = a.mimeType || 'image/jpeg';
+        const fileName = a.fileName || a.file?.name || uri.split('/').pop()?.split('?')[0] || `field_${Date.now()}.jpg`;
+        const mimeType = a.mimeType || a.file?.type || 'image/jpeg';
         setPickedImages((imgs) => {
-          const next = [...imgs, { uri, name: fileName, type: mimeType }];
+          const next = [...imgs, { uri, name: fileName, type: mimeType, file: a.file }];
           return next.slice(0, 3);
         });
       }
@@ -78,6 +78,11 @@ export default function RegisterFieldScreen({ navigation }: any) {
       form.append('hasLights', String(hasLights));
       if (description.trim()) form.append('description', description.trim());
       for (const img of pickedImages) {
+        if (Platform.OS === 'web') {
+          const file = img.file || new File([await (await fetch(img.uri)).blob()], img.name, { type: img.type });
+          form.append('images', file);
+          continue;
+        }
         const uploadUri = await getUploadableImageUri(img.uri);
         form.append('images', {
           uri: uploadUri as any,

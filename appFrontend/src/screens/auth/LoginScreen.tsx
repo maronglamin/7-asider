@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Mail, ArrowRight } from 'lucide-react-native';
@@ -63,6 +64,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingBottom: 40,
     alignItems: 'center',
+    ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 640 } as any) : null),
   },
   title: {
     fontSize: 28,
@@ -81,6 +83,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 32,
     justifyContent: 'flex-end',
+    ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: '100%', maxWidth: 560 } as any) : null),
   },
   socialButtons: {
     marginBottom: 32,

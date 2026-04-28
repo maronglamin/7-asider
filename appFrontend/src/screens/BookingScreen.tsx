@@ -8,8 +8,9 @@ import {
   TouchableOpacity,
   Image,
   Alert,
-  Dimensions,
+  Platform,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -81,6 +82,8 @@ const buildInitialSelection = (booking: any) => {
 };
 
 export function BookingScreen({ navigation, route }: BookingScreenProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const contentWidth = Platform.OS === 'web' ? Math.min(windowWidth, 1180) : windowWidth;
   const { token } = useAuth();
   const fieldId = route?.params?.fieldId as string | undefined;
   const rescheduleBooking = route?.params?.booking;
@@ -356,8 +359,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
             showsHorizontalScrollIndicator={false}
             style={styles.slider}
             onMomentumScrollEnd={(e) => {
-              const w = Dimensions.get('window').width;
-              const idx = Math.round(e.nativeEvent.contentOffset.x / w);
+              const idx = Math.round(e.nativeEvent.contentOffset.x / contentWidth);
               setImageIndex(idx);
             }}
           >
@@ -365,14 +367,14 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
               <Image
                 key={img.id}
                 source={{ uri: resolveMediaUrl(img.url) || undefined }}
-                style={styles.fieldImage}
+                style={[styles.fieldImage, { width: contentWidth }]}
               />
             ))}
           </ScrollView>
         ) : (
           <Image
             source={{ uri: resolveMediaUrl(field?.images?.[0]?.url) || 'https://via.placeholder.com/800x400?text=Field' }}
-            style={styles.fieldImage}
+            style={[styles.fieldImage, { width: contentWidth }]}
           />
         )}
         {Array.isArray(field?.images) && field.images.length > 1 && (
@@ -623,8 +625,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   fieldImage: {
-    width: Dimensions.get('window').width,
     height: 256,
+    resizeMode: 'cover',
   },
   slider: {
     width: '100%',

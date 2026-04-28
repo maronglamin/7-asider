@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Image, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, Image, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../context/AuthContext';
@@ -29,8 +29,9 @@ type KycRecord = {
   updatedAt?: string;
 };
 
-const { width } = Dimensions.get('window');
 export default function FieldDetailScreen({ route, navigation }: any) {
+  const { width: windowWidth } = useWindowDimensions();
+  const width = Platform.OS === 'web' ? Math.min(windowWidth, 1180) : windowWidth;
   const { token } = useAuth();
   const id = route.params.id;
   const [loading, setLoading] = useState(true);
@@ -127,7 +128,7 @@ export default function FieldDetailScreen({ route, navigation }: any) {
       ) : (
         <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
           {/* Image carousel */}
-          <View style={styles.carouselContainer}>
+          <View style={[styles.carouselContainer, { width, height: width * 0.6 }]}>
             <FlatList
               ref={sliderRef}
               data={item.images}
@@ -140,7 +141,7 @@ export default function FieldDetailScreen({ route, navigation }: any) {
                 setIndex(newIndex);
               }}
               renderItem={({ item: img }) => (
-                <Image source={{ uri: resolveMediaUrl(img.url) || undefined }} style={styles.carouselImage} />
+                <Image source={{ uri: resolveMediaUrl(img.url) || undefined }} style={[styles.carouselImage, { width, height: width * 0.6 }]} />
               )}
             />
             {item.images.length > 1 ? (
@@ -245,14 +246,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   carouselContainer: {
-    width,
-    height: width * 0.6,
     backgroundColor: '#000',
     position: 'relative',
   },
   carouselImage: {
-    width,
-    height: width * 0.6,
+    resizeMode: 'cover',
   },
   dotsRow: {
     position: 'absolute',

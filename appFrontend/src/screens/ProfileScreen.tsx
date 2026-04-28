@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -25,6 +26,11 @@ export function ProfileScreen() {
   const insets = useSafeAreaInsets();
 
   const handleCheckForUpdate = async () => {
+    if (Platform.OS === 'web') {
+      Alert.alert('Web app updates', 'The PWA updates automatically when a new web version is deployed. Refresh the page to load the latest version.');
+      return;
+    }
+
     if (!Updates.isEnabled) {
       Alert.alert(
         'Updates unavailable',
@@ -284,6 +290,13 @@ const styles = StyleSheet.create({
   menuContainer: {
     padding: 16,
     gap: 8,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 640,
+        } as any)
+      : null),
   },
   menuItem: {
     backgroundColor: '#ffffff',
@@ -326,6 +339,13 @@ const styles = StyleSheet.create({
   },
   logoutContainer: {
     padding: 16,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 640,
+        } as any)
+      : null),
   },
   logoutButton: {
     backgroundColor: '#fef2f2',
@@ -346,6 +366,13 @@ const styles = StyleSheet.create({
   versionContainer: {
     alignItems: 'center',
     paddingBottom: 24,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 640,
+        } as any)
+      : null),
   },
   versionText: {
     fontSize: 14,

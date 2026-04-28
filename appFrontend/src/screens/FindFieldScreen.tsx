@@ -137,7 +137,7 @@ export default function FindFieldScreen({ navigation }: Props) {
 
   const keyExtractor = useCallback((it: PublicField) => it.id, []);
 
-  const ListHeader = useMemo(() => (
+  const Header = useMemo(() => (
     <View style={styles.header}>
       <View style={styles.headerRow}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack?.()}>
@@ -170,19 +170,19 @@ export default function FindFieldScreen({ navigation }: Props) {
         </View>
       </View>
     </View>
-  ), [query, sort]);
+  ), [navigation, query, sort]);
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
+      {Header}
       <FlatList
         contentContainerStyle={styles.listContent}
         style={styles.list}
         data={items}
         keyExtractor={keyExtractor}
         renderItem={renderItem}
-        ListHeaderComponent={ListHeader}
         onEndReachedThreshold={0.5}
         onEndReached={() => {
           if (!loading && hasMore) fetchPage(false);
@@ -218,6 +218,13 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingBottom: 24,
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 640,
+        } as any)
+      : null),
   },
   header: {
     backgroundColor: '#16a34a',
@@ -299,6 +306,7 @@ const styles = StyleSheet.create({
     color: '#166534',
   },
   card: {
+    flex: 1,
     backgroundColor: '#ffffff',
     marginHorizontal: 16,
     marginTop: 16,
