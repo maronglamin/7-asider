@@ -105,12 +105,12 @@ Renewal runs automatically; no extra setup needed.
 
 ---
 
-## Optional: Multiple domains
+## Frontend domain
 
-If you add another domain (e.g. for the frontend):
+Keep this backend site on `seven-aside.phantommetrics.gm`. The web frontend has a separate Nginx config at `appFrontend/deploy/nginx/seven-aside-web.conf` and should use:
 
 ```bash
-sudo certbot --nginx -d seven-aside.phantommetrics.gm -d www.seven-aside.phantommetrics.gm
+sudo certbot --nginx -d 7a-side.phantommetrics.gm
 ```
 
 ---

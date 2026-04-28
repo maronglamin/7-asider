@@ -48,6 +48,16 @@ A React Native mobile application for booking 7-a-side football fields, joining 
    - **Android**: Press `a` in the terminal or scan QR code with Expo Go app
    - **Web**: Press `w` in the terminal
 
+## Web Deployment
+
+Build the Expo web app with:
+
+```bash
+npm run build:web
+```
+
+Deploy the generated `dist` folder with the Nginx config in `deploy/nginx/seven-aside-web.conf`. The frontend host is `https://7a-side.phantommetrics.gm`, and the backend API host remains `https://seven-aside.phantommetrics.gm`.
+
 ## Project Structure
 
 ```
