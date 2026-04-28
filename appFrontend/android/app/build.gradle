@@ -146,8 +146,11 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 29
+        versionCode 31
         versionName expoUpdates.appVersion
+        ndk {
+            abiFilters 'arm64-v8a', 'x86_64'
+        }
         // EAS Update (bare): must match app.json expo.runtimeVersion (string) exactly
         resValue "string", "expo_runtime_version", expoUpdates.runtimeVersion
         manifestPlaceholders += [
