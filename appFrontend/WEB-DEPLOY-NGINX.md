@@ -24,9 +24,9 @@ This creates the static web build in `appFrontend/dist`.
 On the server:
 
 ```bash
-sudo mkdir -p /var/www/7a-side-web
-sudo rsync -a --delete /path/to/appFrontend/dist/ /var/www/7a-side-web/
-sudo chown -R www-data:www-data /var/www/7a-side-web
+sudo mkdir -p /var/www/7-aside/appFrontend
+sudo rsync -a --delete /path/to/appFrontend/dist/ /var/www/7-aside/appFrontend/
+sudo chown -R www-data:www-data /var/www/7-aside/appFrontend
 ```
 
 Adjust `/path/to/appFrontend/dist/` to wherever the repository or build artifact exists on the server.
