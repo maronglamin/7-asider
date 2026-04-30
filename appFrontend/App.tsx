@@ -45,7 +45,7 @@ import { ForgotPasswordScreen } from './src/screens/auth/ForgotPasswordScreen';
 // Import components
 import { BottomTabBar } from './src/components/BottomTabBar';
 import { AppReleaseSheet, ReleaseNotice } from './src/components/AppReleaseSheet';
-import { AuthProvider } from './src/context/AuthContext';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { apiGet } from './src/api/client';
 import { registerServiceWorker } from './src/pwa/registerServiceWorker';
 import { installWebNativeCompat } from './src/utils/webNativeCompat';
@@ -186,6 +186,50 @@ function MainTabs() {
   );
 }
 
+function RootNavigator() {
+  const { user, token } = useAuth();
+  const initialRouteName = user && token ? 'Main' : 'Onboarding';
+
+  return (
+    <NavigationContainer>
+      <StatusBar style="light" />
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+        }}
+        initialRouteName={initialRouteName}
+      >
+        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
+        <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
+        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="Main" component={MainTabs} />
+        <Stack.Screen name="Booking" component={BookingScreen} />
+        <Stack.Screen name="MyFields" component={MyFieldsScreen} />
+        <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
+        <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
+        <Stack.Screen name="FindField" component={FindFieldScreen} />
+        <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
+        <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
+        <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
+        <Stack.Screen name="UserInfo" component={UserInfoScreen} />
+        <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
+        <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+        <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
+        <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
+        <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
+        <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
+        <Stack.Screen name="Users" component={UsersScreen} />
+        <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
+        <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
+        <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
+        <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
 export default function App() {
   const [releaseNotice, setReleaseNotice] = useState<ReleaseNotice | null>(null);
   const checkingReleaseRef = useRef(false);
@@ -268,42 +312,7 @@ export default function App() {
       <View style={appShellStyles.shell}>
         <SafeAreaProvider>
           <AuthProvider>
-            <NavigationContainer>
-              <StatusBar style="light" />
-              <Stack.Navigator
-                screenOptions={{
-                  headerShown: false,
-                }}
-                initialRouteName="Onboarding"
-              >
-                <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-                <Stack.Screen name="Login" component={LoginScreen} />
-                <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-                <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-                <Stack.Screen name="Register" component={RegisterScreen} />
-                <Stack.Screen name="Main" component={MainTabs} />
-                <Stack.Screen name="Booking" component={BookingScreen} />
-                <Stack.Screen name="MyFields" component={MyFieldsScreen} />
-                <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
-                <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
-                <Stack.Screen name="FindField" component={FindFieldScreen} />
-                <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
-                <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
-                <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
-                <Stack.Screen name="UserInfo" component={UserInfoScreen} />
-                <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
-                <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
-                <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
-                <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
-                <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
-                <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
-                <Stack.Screen name="Users" component={UsersScreen} />
-                <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
-                <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
-                <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
-                <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
-              </Stack.Navigator>
-            </NavigationContainer>
+            <RootNavigator />
             <AppReleaseSheet
               notice={releaseNotice}
               onDismiss={handleDismissRelease}

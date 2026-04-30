@@ -11,7 +11,7 @@ export type JwtUserPayload = {
 };
 
 export function signJwt(payload: JwtUserPayload) {
-  const options: SignOptions = RAW_EXPIRES ? { expiresIn: RAW_EXPIRES as unknown as SignOptions['expiresIn'] } : { expiresIn: '7d' };
+  const options: SignOptions | undefined = RAW_EXPIRES ? { expiresIn: RAW_EXPIRES as unknown as SignOptions['expiresIn'] } : undefined;
   return jwt.sign(payload, JWT_SECRET, options);
 }
 

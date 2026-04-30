@@ -7,6 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Animatable from 'react-native-animatable';
+import { useAuth } from '../../context/AuthContext';
 
 interface OnboardingScreenProps {
   navigation?: any;
@@ -15,19 +16,29 @@ interface OnboardingScreenProps {
 export function OnboardingScreen({ navigation }: OnboardingScreenProps) {
   const logoRef = useRef<any>(null);
   const titleRef = useRef<any>(null);
+  const { user, token } = useAuth();
 
   useEffect(() => {
+    if (user && token) {
+      navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
+      return;
+    }
+
     // Start animations with delays - loading indicator shows immediately
-    setTimeout(() => logoRef.current?.fadeInUp(800), 1000);
-    setTimeout(() => titleRef.current?.fadeInUp(800), 1200);
+    const logoTimer = setTimeout(() => logoRef.current?.fadeInUp(800), 1000);
+    const titleTimer = setTimeout(() => titleRef.current?.fadeInUp(800), 1200);
 
     // Navigate after animations complete
     const timer = setTimeout(() => {
       navigation?.navigate('Login');
     }, 5000);
 
-    return () => clearTimeout(timer);
-  }, [navigation]);
+    return () => {
+      clearTimeout(logoTimer);
+      clearTimeout(titleTimer);
+      clearTimeout(timer);
+    };
+  }, [navigation, token, user]);
 
   return (
     <SafeAreaView style={styles.container} edges={['top','bottom']}>
