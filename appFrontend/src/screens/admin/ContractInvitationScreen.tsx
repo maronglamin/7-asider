@@ -34,6 +34,8 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
   const [proposalFilename, setProposalFilename] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [recipientName, setRecipientName] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const [platformFeePerHour, setPlatformFeePerHour] = useState('100');
   const [ccEmails, setCcEmails] = useState('');
   const [subject, setSubject] = useState('');
   const [messageText, setMessageText] = useState('');
@@ -43,7 +45,11 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
     try {
       setLoadingTemplate(true);
       setError(null);
-      const template = await apiGetAuth<ContractTemplate>('/admin/contract-invitations/template', token as string);
+      const qs = new URLSearchParams();
+      if (recipientName.trim()) qs.set('recipientName', recipientName.trim());
+      if (businessName.trim()) qs.set('businessName', businessName.trim());
+      if (platformFeePerHour.trim()) qs.set('platformFeePerHour', platformFeePerHour.trim());
+      const template = await apiGetAuth<ContractTemplate>(`/admin/contract-invitations/template?${qs.toString()}`, token as string);
       setSubject(template.subject || '');
       setMessageText(template.messageText || '');
       setProposalFilename(template.proposalFilename || '');
@@ -52,21 +58,27 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
     } finally {
       setLoadingTemplate(false);
     }
-  }, [token]);
+  }, [token, recipientName, businessName, platformFeePerHour]);
 
   useEffect(() => {
-    loadTemplate();
-  }, [loadTemplate]);
+    if (templateMode === 'DEFAULT') {
+      loadTemplate();
+    }
+  }, [loadTemplate, templateMode]);
 
   const ccList = useMemo(() => parseCcEmails(ccEmails), [ccEmails]);
   const ccValid = useMemo(() => ccList.every((email) => EMAIL_RE.test(email)), [ccList]);
+  const platformFeeNumber = useMemo(() => Number(platformFeePerHour), [platformFeePerHour]);
+  const platformFeeValid = useMemo(() => Number.isFinite(platformFeeNumber) && platformFeeNumber > 0, [platformFeeNumber]);
   const canSend = useMemo(() => {
     if (!token || sending) return false;
     if (!EMAIL_RE.test(recipientEmail.trim())) return false;
+    if (!businessName.trim()) return false;
+    if (!platformFeeValid) return false;
     if (!ccValid) return false;
     if (!subject.trim() || !messageText.trim()) return false;
     return true;
-  }, [token, sending, recipientEmail, ccValid, subject, messageText]);
+  }, [token, sending, recipientEmail, businessName, platformFeeValid, ccValid, subject, messageText]);
 
   const resetToDefault = async () => {
     setTemplateMode('DEFAULT');
@@ -83,6 +95,8 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
         {
           recipientEmail: recipientEmail.trim(),
           recipientName: recipientName.trim(),
+          businessName: businessName.trim(),
+          platformFeePerHour: platformFeeNumber,
           ccEmails: ccList,
           templateType: templateMode,
           subject,
@@ -93,6 +107,7 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
       Alert.alert('Invitation sent', 'The contract invitation email has been sent.');
       setRecipientEmail('');
       setRecipientName('');
+      setBusinessName('');
       setCcEmails('');
       if (templateMode === 'DEFAULT') await loadTemplate();
     } catch (e: any) {
@@ -154,6 +169,27 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
             multiline
           />
           {!ccValid ? <Text style={styles.validationText}>One or more CC email addresses are invalid.</Text> : null}
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionLabel}>Invitation Variables</Text>
+          <TextInput
+            style={styles.input}
+            value={businessName}
+            onChangeText={setBusinessName}
+            placeholder="Business / field name being invited"
+            placeholderTextColor="#9ca3af"
+          />
+          <TextInput
+            style={styles.input}
+            value={platformFeePerHour}
+            onChangeText={setPlatformFeePerHour}
+            placeholder="7a-side fee per booking hour"
+            placeholderTextColor="#9ca3af"
+            keyboardType="numeric"
+          />
+          {!businessName.trim() ? <Text style={styles.validationText}>Business name is required for the invitation and PDF.</Text> : null}
+          {!platformFeeValid ? <Text style={styles.validationText}>Enter a valid 7a-side fee per booking hour.</Text> : null}
         </View>
 
         <View style={styles.card}>

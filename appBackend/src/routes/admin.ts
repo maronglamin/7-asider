@@ -28,6 +28,11 @@ function validateEmailList(emails: string[]) {
   return emails.every((email) => EMAIL_RE.test(email));
 }
 
+function parsePositiveNumber(value: unknown, fallback = 100) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 // GET /admin/users - list users with filters
 // Query:
 //  - supadmin=1|0 (optional)
@@ -184,7 +189,9 @@ router.patch('/users/:id/supadmin', requireAuth, requireSupadmin, async (req: Au
 // GET /admin/contract-invitations/template?recipientName=<name>
 router.get('/contract-invitations/template', requireAuth, requireSupadmin, async (req, res) => {
   const recipientName = typeof req.query.recipientName === 'string' ? req.query.recipientName : undefined;
-  const template = getDefaultContractInvitationTemplate(recipientName);
+  const businessName = typeof req.query.businessName === 'string' ? req.query.businessName : undefined;
+  const platformFeePerHour = parsePositiveNumber(req.query.platformFeePerHour);
+  const template = getDefaultContractInvitationTemplate(recipientName, { businessName, platformFeePerHour });
   res.json({
     ...template,
     proposalFilename: CONTRACT_INVITATION_PROPOSAL_FILENAME,
@@ -196,6 +203,8 @@ router.post('/contract-invitations', requireAuth, requireSupadmin, async (req: A
   try {
     const recipientEmail = String(req.body?.recipientEmail || '').trim().toLowerCase();
     const recipientName = typeof req.body?.recipientName === 'string' ? req.body.recipientName.trim() : '';
+    const businessName = typeof req.body?.businessName === 'string' ? req.body.businessName.trim() : '';
+    const platformFeePerHour = parsePositiveNumber(req.body?.platformFeePerHour);
     const ccEmails = parseEmailList(req.body?.ccEmails).map((email) => email.toLowerCase());
     const templateTypeRaw = String(req.body?.templateType || 'DEFAULT').toUpperCase();
     const templateType: ContractInvitationTemplateType = templateTypeRaw === 'CUSTOM' ? 'CUSTOM' : 'DEFAULT';
@@ -206,8 +215,11 @@ router.post('/contract-invitations', requireAuth, requireSupadmin, async (req: A
     if (!validateEmailList(ccEmails)) {
       return res.status(400).json({ error: 'One or more CC email addresses are invalid' });
     }
+    if (!businessName) {
+      return res.status(400).json({ error: 'Business name is required' });
+    }
 
-    const defaultTemplate = getDefaultContractInvitationTemplate(recipientName);
+    const defaultTemplate = getDefaultContractInvitationTemplate(recipientName, { businessName, platformFeePerHour });
     const subject = templateType === 'CUSTOM'
       ? String(req.body?.subject || '').trim()
       : defaultTemplate.subject;
@@ -232,6 +244,8 @@ router.post('/contract-invitations', requireAuth, requireSupadmin, async (req: A
       subject,
       messageText,
       messageHtml,
+      businessName,
+      platformFeePerHour,
     });
 
     const invitationId = randomUUID();

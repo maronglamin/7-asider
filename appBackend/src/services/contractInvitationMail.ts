@@ -22,6 +22,13 @@ export type ContractInvitationTemplate = {
 type SendContractInvitationParams = ContractInvitationTemplate & {
   to: string;
   cc?: string[];
+  businessName?: string | null;
+  platformFeePerHour?: number | null;
+};
+
+type ContractInvitationVariables = {
+  businessName?: string | null;
+  platformFeePerHour?: number | null;
 };
 
 function escapeHtml(value: string) {
@@ -40,17 +47,35 @@ export function textToHtml(messageText: string) {
     .join('\n');
 }
 
-export function getDefaultContractInvitationTemplate(recipientName?: string | null): ContractInvitationTemplate {
+function getSafeBusinessName(businessName?: string | null) {
+  return businessName?.trim() || 'your field';
+}
+
+function getSafePlatformFee(platformFeePerHour?: number | null) {
+  const fee = Number(platformFeePerHour);
+  return Number.isFinite(fee) && fee > 0 ? fee : 100;
+}
+
+function formatGmd(value: number) {
+  return `GMD${Number.isInteger(value) ? value : value.toFixed(2)}`;
+}
+
+export function getDefaultContractInvitationTemplate(
+  recipientName?: string | null,
+  variables: ContractInvitationVariables = {}
+): ContractInvitationTemplate {
   const safeName = recipientName?.trim() || 'there';
+  const businessName = getSafeBusinessName(variables.businessName);
+  const platformFee = formatGmd(getSafePlatformFee(variables.platformFeePerHour));
   const subject = '7a-side Business Partnership Request';
   const messageText = [
     `Hello ${safeName},`,
     '',
-    'We are pleased to invite your field to consider a business partnership with 7a-side.',
+    `We are pleased to invite ${businessName} to consider a business partnership with 7a-side.`,
     '',
     '7a-side is a football field booking platform built to help players discover available fields, make bookings, and complete payments more easily. For field owners, the platform is designed to improve booking visibility, reduce manual coordination, and support a more organized booking process.',
     '',
-    'Under this partnership, for every booking hour completed through 7a-side, 7a-side earns GMD100. Your field keeps the remaining booking revenue according to your listed hourly price.',
+    `Under this partnership, for every booking hour completed through 7a-side, 7a-side earns ${platformFee}. ${businessName} keeps the remaining booking revenue according to the hourly price listed for the field.`,
     '',
     'To support smooth payment collection and settlement, the field must maintain a merchant account with at least one supported local wallet provider: APS, Wave, or Yonna.',
     '',
@@ -220,8 +245,10 @@ function getLogoForPdf() {
   return readPngForPdf(logoPath);
 }
 
-function buildPdfTextStream(hasLogo: boolean) {
+function buildPdfTextStream(hasLogo: boolean, variables: ContractInvitationVariables) {
   const today = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+  const businessName = getSafeBusinessName(variables.businessName);
+  const platformFee = formatGmd(getSafePlatformFee(variables.platformFeePerHour));
   const commands: string[] = [];
   const addText = (text: string, x: number, y: number, size = 10, color = '0.07 0.10 0.16') => {
     commands.push(`BT /F1 ${size} Tf ${color} rg ${x} ${y} Td (${escapePdfText(text)}) Tj ET`);
@@ -253,11 +280,11 @@ function buildPdfTextStream(hasLogo: boolean) {
 
   addRect(48, 590, 499, 58, '0.96 0.98 0.99');
   addText('PREPARED FOR', 66, 630, 8, '0.39 0.46 0.56');
-  addText('Prospective Field Partner', 66, 615, 12, '0.07 0.10 0.16');
+  addText(businessName, 66, 615, 12, '0.07 0.10 0.16');
   addText('Football field owner or operator', 66, 600, 8, '0.39 0.46 0.56');
   addText('PROPOSAL DETAILS', 320, 630, 8, '0.39 0.46 0.56');
   addText('Commercials', 320, 615, 8, '0.07 0.10 0.16');
-  addText('GMD100 earned by 7a-side per booking hour', 320, 603, 8, '0.20 0.25 0.33');
+  addText(`${platformFee} earned by 7a-side per booking hour`, 320, 603, 8, '0.20 0.25 0.33');
   addText('Merchant readiness', 320, 588, 8, '0.07 0.10 0.16');
   addText('APS, Wave, or Yonna merchant account required', 320, 576, 8, '0.20 0.25 0.33');
 
@@ -265,7 +292,7 @@ function buildPdfTextStream(hasLogo: boolean) {
   addText('Dear Field Partner,', 48, y, 10);
   y -= 28;
   y = addWrapped(
-    'We are pleased to introduce 7a-side as a practical booking and payment platform for football fields that want stronger visibility, easier booking coordination, and a more organized customer experience.',
+    `We are pleased to introduce 7a-side to ${businessName} as a practical booking and payment platform for football fields that want stronger visibility, easier booking coordination, and a more organized customer experience.`,
     48,
     y,
     10,
@@ -281,7 +308,7 @@ function buildPdfTextStream(hasLogo: boolean) {
   );
   y -= 10;
   y = addWrapped(
-    'Under the proposed commercial arrangement, 7a-side earns GMD100 for every booking hour completed through the platform. The field owner keeps the remaining booking revenue according to the hourly price listed for the field.',
+    `Under the proposed commercial arrangement, 7a-side earns ${platformFee} for every booking hour completed through the platform. ${businessName} keeps the remaining booking revenue according to the hourly price listed for the field.`,
     48,
     y,
     10,
@@ -320,9 +347,9 @@ function buildPdfTextStream(hasLogo: boolean) {
   return commands.join('\n');
 }
 
-function buildContractProposalPdf() {
+function buildContractProposalPdf(variables: ContractInvitationVariables = {}) {
   const logo = getLogoForPdf();
-  const stream = buildPdfTextStream(Boolean(logo));
+  const stream = buildPdfTextStream(Boolean(logo), variables);
   const compressedLogo = logo ? zlib.deflateSync(logo.rgb) : null;
   const resourceXObject = logo ? ' /XObject << /Logo 6 0 R >>' : '';
   const objects = [
@@ -358,15 +385,23 @@ function buildContractProposalPdf() {
   return Buffer.concat(pdfParts);
 }
 
-function getProposalAttachment() {
+function getProposalAttachment(variables: ContractInvitationVariables = {}) {
   return {
     filename: CONTRACT_INVITATION_PROPOSAL_FILENAME,
-    content: buildContractProposalPdf(),
+    content: buildContractProposalPdf(variables),
     contentType: 'application/pdf',
   };
 }
 
-export async function sendContractInvitationEmail({ to, cc = [], subject, messageText, messageHtml }: SendContractInvitationParams) {
+export async function sendContractInvitationEmail({
+  to,
+  cc = [],
+  subject,
+  messageText,
+  messageHtml,
+  businessName,
+  platformFeePerHour,
+}: SendContractInvitationParams) {
   if (!resend) {
     throw new Error('RESEND_API_KEY is not configured');
   }
@@ -382,7 +417,7 @@ export async function sendContractInvitationEmail({ to, cc = [], subject, messag
     subject,
     text: messageText,
     html: messageHtml,
-    attachments: [getProposalAttachment()],
+    attachments: [getProposalAttachment({ businessName, platformFeePerHour })],
   } as any);
 
   const response = result as any;
