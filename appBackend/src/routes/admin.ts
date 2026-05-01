@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { prisma } from '../db/prisma';
 import { AuthedRequest, requireAuth, requireSupadmin } from '../middleware/auth';
 import {
@@ -233,23 +234,43 @@ router.post('/contract-invitations', requireAuth, requireSupadmin, async (req: A
       messageHtml,
     });
 
-    const invitation = await (prisma as any).contractInvitation.create({
-      data: {
-        recipientEmail,
-        recipientName: recipientName || null,
-        ccEmails,
-        subject,
-        templateType,
-        messageText,
-        messageHtml,
-        proposalFilename: CONTRACT_INVITATION_PROPOSAL_FILENAME,
-        resendEmailId,
-        sentByUserId: req.auth!.userId,
-      },
-      include: {
-        sentBy: { select: { id: true, email: true, name: true } },
-      },
-    });
+    const invitationId = randomUUID();
+    const ccEmailsJson = JSON.stringify(ccEmails);
+    const createdRows = await (prisma as any).$queryRaw`
+      WITH inserted AS (
+        INSERT INTO "ContractInvitation" (
+          "id",
+          "recipientEmail",
+          "recipientName",
+          "ccEmails",
+          "subject",
+          "templateType",
+          "messageText",
+          "messageHtml",
+          "proposalFilename",
+          "resendEmailId",
+          "sentByUserId"
+        )
+        VALUES (
+          ${invitationId},
+          ${recipientEmail},
+          ${recipientName || null},
+          ${ccEmailsJson}::jsonb,
+          ${subject},
+          ${templateType}::"ContractInvitationTemplateType",
+          ${messageText},
+          ${messageHtml},
+          ${CONTRACT_INVITATION_PROPOSAL_FILENAME},
+          ${resendEmailId},
+          ${req.auth!.userId}
+        )
+        RETURNING *
+      )
+      SELECT inserted.*, json_build_object('id', u.id, 'email', u.email, 'name', u.name) AS "sentBy"
+      FROM inserted
+      JOIN "User" u ON u.id = inserted."sentByUserId"
+    `;
+    const invitation = createdRows?.[0];
 
     res.status(201).json({ ok: true, invitation });
   } catch (e: any) {
@@ -264,14 +285,22 @@ router.get('/contract-invitations', requireAuth, requireSupadmin, async (req, re
   try {
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
     const cursor = (req.query.cursor as string | undefined) || undefined;
-    const results = await (prisma as any).contractInvitation.findMany({
-      orderBy: { sentAt: 'desc' },
-      take: limit + 1,
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      include: {
-        sentBy: { select: { id: true, email: true, name: true } },
-      },
-    });
+    const cursorValue = cursor || null;
+    const results = await (prisma as any).$queryRaw`
+      SELECT ci.*, json_build_object('id', u.id, 'email', u.email, 'name', u.name) AS "sentBy"
+      FROM "ContractInvitation" ci
+      JOIN "User" u ON u.id = ci."sentByUserId"
+      WHERE (
+        ${cursorValue}::text IS NULL
+        OR (ci."sentAt", ci."id") < (
+          SELECT c."sentAt", c."id"
+          FROM "ContractInvitation" c
+          WHERE c."id" = ${cursorValue}
+        )
+      )
+      ORDER BY ci."sentAt" DESC, ci."id" DESC
+      LIMIT ${limit + 1}
+    `;
 
     let nextCursor: string | null = null;
     let items = results;

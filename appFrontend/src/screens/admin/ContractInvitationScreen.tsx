@@ -203,7 +203,7 @@ export default function ContractInvitationScreen({ navigation }: { navigation?: 
 
           <View style={styles.attachmentRow}>
             <FileText size={18} color="#065f46" />
-            <Text style={styles.attachmentText}>Attached proposal: {proposalFilename || 'default proposal'}</Text>
+            <Text style={styles.attachmentText}>Attached contract PDF: {proposalFilename || 'default contract PDF'}</Text>
           </View>
         </View>
 

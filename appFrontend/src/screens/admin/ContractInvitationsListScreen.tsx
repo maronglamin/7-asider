@@ -98,7 +98,7 @@ export default function ContractInvitationsListScreen({ navigation }: { navigati
           Sent {sentAt ? sentAt.toLocaleString() : 'recently'} by {item.sentBy?.name || item.sentBy?.email || 'Super Admin'}
         </Text>
         <Text style={styles.meta}>CC: {ccEmails.length ? ccEmails.join(', ') : 'None'}</Text>
-        <Text style={styles.meta}>Proposal: {item.proposalFilename || 'default proposal'}</Text>
+        <Text style={styles.meta}>Contract PDF: {item.proposalFilename || 'default contract PDF'}</Text>
       </View>
     );
   };
