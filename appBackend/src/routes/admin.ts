@@ -1,8 +1,31 @@
 import { Router } from 'express';
 import { prisma } from '../db/prisma';
 import { AuthedRequest, requireAuth, requireSupadmin } from '../middleware/auth';
+import {
+  CONTRACT_INVITATION_PROPOSAL_FILENAME,
+  ContractInvitationTemplateType,
+  getDefaultContractInvitationTemplate,
+  sendContractInvitationEmail,
+  textToHtml,
+} from '../services/contractInvitationMail';
 
 const router = Router();
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function parseEmailList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value.split(/[,\n;]/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function validateEmailList(emails: string[]) {
+  return emails.every((email) => EMAIL_RE.test(email));
+}
 
 // GET /admin/users - list users with filters
 // Query:
@@ -153,6 +176,115 @@ router.patch('/users/:id/supadmin', requireAuth, requireSupadmin, async (req: Au
   } catch (e: any) {
     console.error('Error in PATCH /admin/users/:id/supadmin:', e?.message || e);
     res.status(500).json({ error: 'Failed to update supadmin' });
+  }
+});
+
+// ========= Contract Invitations Admin =========
+// GET /admin/contract-invitations/template?recipientName=<name>
+router.get('/contract-invitations/template', requireAuth, requireSupadmin, async (req, res) => {
+  const recipientName = typeof req.query.recipientName === 'string' ? req.query.recipientName : undefined;
+  const template = getDefaultContractInvitationTemplate(recipientName);
+  res.json({
+    ...template,
+    proposalFilename: CONTRACT_INVITATION_PROPOSAL_FILENAME,
+  });
+});
+
+// POST /admin/contract-invitations
+router.post('/contract-invitations', requireAuth, requireSupadmin, async (req: AuthedRequest, res) => {
+  try {
+    const recipientEmail = String(req.body?.recipientEmail || '').trim().toLowerCase();
+    const recipientName = typeof req.body?.recipientName === 'string' ? req.body.recipientName.trim() : '';
+    const ccEmails = parseEmailList(req.body?.ccEmails).map((email) => email.toLowerCase());
+    const templateTypeRaw = String(req.body?.templateType || 'DEFAULT').toUpperCase();
+    const templateType: ContractInvitationTemplateType = templateTypeRaw === 'CUSTOM' ? 'CUSTOM' : 'DEFAULT';
+
+    if (!EMAIL_RE.test(recipientEmail)) {
+      return res.status(400).json({ error: 'Valid recipient email is required' });
+    }
+    if (!validateEmailList(ccEmails)) {
+      return res.status(400).json({ error: 'One or more CC email addresses are invalid' });
+    }
+
+    const defaultTemplate = getDefaultContractInvitationTemplate(recipientName);
+    const subject = templateType === 'CUSTOM'
+      ? String(req.body?.subject || '').trim()
+      : defaultTemplate.subject;
+    const messageText = templateType === 'CUSTOM'
+      ? String(req.body?.messageText || '').trim()
+      : defaultTemplate.messageText;
+
+    if (!subject) {
+      return res.status(400).json({ error: 'Subject is required' });
+    }
+    if (!messageText) {
+      return res.status(400).json({ error: 'Message content is required' });
+    }
+
+    const messageHtml = templateType === 'CUSTOM'
+      ? `<div style="font-family: Arial, sans-serif; color: #111827; line-height: 1.6;">${textToHtml(messageText)}</div>`
+      : defaultTemplate.messageHtml;
+
+    const resendEmailId = await sendContractInvitationEmail({
+      to: recipientEmail,
+      cc: ccEmails,
+      subject,
+      messageText,
+      messageHtml,
+    });
+
+    const invitation = await (prisma as any).contractInvitation.create({
+      data: {
+        recipientEmail,
+        recipientName: recipientName || null,
+        ccEmails,
+        subject,
+        templateType,
+        messageText,
+        messageHtml,
+        proposalFilename: CONTRACT_INVITATION_PROPOSAL_FILENAME,
+        resendEmailId,
+        sentByUserId: req.auth!.userId,
+      },
+      include: {
+        sentBy: { select: { id: true, email: true, name: true } },
+      },
+    });
+
+    res.status(201).json({ ok: true, invitation });
+  } catch (e: any) {
+    console.error('Error in POST /admin/contract-invitations', e?.message || e);
+    res.status(500).json({ error: e?.message || 'Failed to send contract invitation' });
+  }
+});
+
+// GET /admin/contract-invitations - paginated sent invitations
+// Query: ?limit=20&cursor=<invitationId>
+router.get('/contract-invitations', requireAuth, requireSupadmin, async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+    const cursor = (req.query.cursor as string | undefined) || undefined;
+    const results = await (prisma as any).contractInvitation.findMany({
+      orderBy: { sentAt: 'desc' },
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: {
+        sentBy: { select: { id: true, email: true, name: true } },
+      },
+    });
+
+    let nextCursor: string | null = null;
+    let items = results;
+    if (results.length > limit) {
+      const next = results[results.length - 1];
+      nextCursor = next.id;
+      items = results.slice(0, limit);
+    }
+
+    res.json({ items, nextCursor });
+  } catch (e: any) {
+    console.error('Error in GET /admin/contract-invitations', e?.message || e);
+    res.status(500).json({ error: 'Failed to fetch contract invitations' });
   }
 });
 

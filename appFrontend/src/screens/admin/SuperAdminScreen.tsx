@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, ShieldCheck, UserCog, Users, Building2, CalendarCheck } from 'lucide-react-native';
+import { ArrowLeft, ShieldCheck, UserCog, Users, Building2, CalendarCheck, Mail, ClipboardList } from 'lucide-react-native';
 
 export default function SuperAdminScreen({ navigation }: { navigation?: any }) {
   const insets = useSafeAreaInsets();
@@ -11,6 +11,8 @@ export default function SuperAdminScreen({ navigation }: { navigation?: any }) {
     { key: 'users', title: 'Users', icon: Users, route: 'Users' },
     { key: 'assetOwners', title: 'Asset owner', icon: Building2, route: 'AssetOwners' },
     { key: 'bookings', title: 'Bookings', icon: CalendarCheck, route: 'AdminBookings' },
+    { key: 'contractInvitation', title: 'Contract Invitation', icon: Mail, route: 'ContractInvitation' },
+    { key: 'invitedList', title: 'Invited List', icon: ClipboardList, route: 'ContractInvitationsList' },
   ];
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>

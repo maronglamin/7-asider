@@ -30,6 +30,8 @@ import FieldDetailAdminScreen from './src/screens/admin/FieldDetailAdminScreen';
 import AdminBookingsScreen from './src/screens/admin/AdminBookingsScreen';
 import AdminBookingsListScreen from './src/screens/admin/AdminBookingsListScreen';
 import UsersScreen from './src/screens/admin/UsersScreen';
+import ContractInvitationScreen from './src/screens/admin/ContractInvitationScreen';
+import ContractInvitationsListScreen from './src/screens/admin/ContractInvitationsListScreen';
 import BanksWalletsScreen from './src/screens/BanksWalletsScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
@@ -221,6 +223,8 @@ function RootNavigator() {
         <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
         <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
         <Stack.Screen name="Users" component={UsersScreen} />
+        <Stack.Screen name="ContractInvitation" component={ContractInvitationScreen} />
+        <Stack.Screen name="ContractInvitationsList" component={ContractInvitationsListScreen} />
         <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
         <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />

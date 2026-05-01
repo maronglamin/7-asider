@@ -30,8 +30,31 @@ model User {
   PaymentReceipt PaymentReceipt[]
   bankAccounts   BankAccount[]
   walletAccounts WalletAccount[]
+  sentContractInvitations ContractInvitation[] @relation("ContractInvitationSender")
 
   @@index([email])
+}
+
+model ContractInvitation {
+  id               String                         @id @default(cuid())
+  recipientEmail   String
+  recipientName    String?
+  ccEmails         Json?
+  subject          String
+  templateType     ContractInvitationTemplateType @default(DEFAULT)
+  messageText      String
+  messageHtml      String
+  proposalFilename String
+  resendEmailId    String?
+  sentByUserId     String
+  sentAt           DateTime                       @default(now())
+  createdAt        DateTime                       @default(now())
+
+  sentBy User @relation("ContractInvitationSender", fields: [sentByUserId], references: [id])
+
+  @@index([recipientEmail])
+  @@index([sentAt])
+  @@index([sentByUserId])
 }
 
 model Session {
@@ -47,6 +70,11 @@ enum UserStatus {
   ACTIVE
   BLOCKED
   TERMINATED
+}
+
+enum ContractInvitationTemplateType {
+  DEFAULT
+  CUSTOM
 }
 
 enum FieldKycStatus {
