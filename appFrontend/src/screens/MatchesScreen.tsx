@@ -155,7 +155,7 @@ export function MatchesScreen() {
 
       {/* Content */}
       <ScrollView
-        style={styles.content}
+        style={[styles.content, Platform.OS === 'web' ? { minHeight: 0, minWidth: 0 } : null]}
         contentContainerStyle={styles.contentContainer}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={reload} />}

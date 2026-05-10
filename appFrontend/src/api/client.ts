@@ -86,7 +86,13 @@ export async function apiPostMultipartAuth<T>(path: string, form: FormData, toke
     }
     throw new Error(errMsg);
   }
-  return res.json();
+  const raw = await res.text().catch(() => '');
+  if (!raw.trim()) return {} as T;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    throw new Error('Invalid response from server');
+  }
 }
 
 export async function apiPatchAuth<T>(path: string, body: any, token: string): Promise<T> {

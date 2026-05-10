@@ -216,7 +216,7 @@ export default function MyFieldsScreen({ navigation }: any) {
           </View>
         ) : (
           <FlatList
-            style={styles.content}
+            style={[styles.content, Platform.OS === 'web' ? { minHeight: 0 } : null]}
             contentContainerStyle={styles.contentContainer}
             data={items}
             keyExtractor={(item) => item.id}

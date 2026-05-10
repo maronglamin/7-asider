@@ -54,7 +54,7 @@ export function SquadsScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={[styles.content, Platform.OS === 'web' ? { minHeight: 0, minWidth: 0 } : null]} showsVerticalScrollIndicator={false}>
         {/* Quick Actions */}
         <View style={styles.actionsContainer}>
           <TouchableOpacity style={styles.secondaryAction} onPress={() => setShowComing(true)}>

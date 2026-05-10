@@ -411,7 +411,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
       </View>
 
       <ScrollView
-        style={styles.content}
+        style={[styles.content, Platform.OS === 'web' ? { minHeight: 0, minWidth: 0 } : null]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true, { force: true }); }} />

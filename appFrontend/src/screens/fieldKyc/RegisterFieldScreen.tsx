@@ -40,7 +40,8 @@ export default function RegisterFieldScreen({ navigation }: any) {
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        // Web: editing often yields blob URIs that break fetch() when building FormData files.
+        allowsEditing: Platform.OS !== 'web',
         quality: 0.9,
       });
       if (!result.canceled && Array.isArray(result.assets) && result.assets.length > 0 && result.assets[0] && result.assets[0].uri) {
@@ -79,7 +80,15 @@ export default function RegisterFieldScreen({ navigation }: any) {
       if (description.trim()) form.append('description', description.trim());
       for (const img of pickedImages) {
         if (Platform.OS === 'web') {
-          const file = img.file || new File([await (await fetch(img.uri)).blob()], img.name, { type: img.type });
+          let file = img.file;
+          if (!file) {
+            const blobRes = await fetch(img.uri);
+            if (!blobRes.ok) {
+              throw new Error('Could not read the selected image. Please pick the photos again.');
+            }
+            const blob = await blobRes.blob();
+            file = new File([blob], img.name, { type: img.type || blob.type || 'image/jpeg' });
+          }
           form.append('images', file);
           continue;
         }
@@ -137,7 +146,11 @@ export default function RegisterFieldScreen({ navigation }: any) {
         </View>
       </SafeAreaView>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={[styles.content, Platform.OS === 'web' ? { minHeight: 0 } : null]}
+        contentContainerStyle={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.stepScreen}>
           {step === 1 && (
             <View>
