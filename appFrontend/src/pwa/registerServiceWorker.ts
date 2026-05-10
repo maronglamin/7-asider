@@ -19,6 +19,14 @@ function ensureManifestLink() {
     document.head.appendChild(touchIcon);
   }
 
+  if (!document.querySelector('link[rel="icon"]')) {
+    const favicon = document.createElement('link');
+    favicon.rel = 'icon';
+    favicon.type = 'image/png';
+    favicon.href = '/icon.png';
+    document.head.appendChild(favicon);
+  }
+
   let theme = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
   if (!theme) {
     theme = document.createElement('meta');
