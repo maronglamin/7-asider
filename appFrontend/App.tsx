@@ -7,7 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Alert, AppState, Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, AppState, InteractionManager, Linking, Platform, StyleSheet, Text, View } from 'react-native';
 import Constants from 'expo-constants';
 
 // Import screens
@@ -50,11 +50,12 @@ import { AppReleaseSheet, ReleaseNotice } from './src/components/AppReleaseSheet
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { apiGet } from './src/api/client';
 import { registerServiceWorker } from './src/pwa/registerServiceWorker';
-import { installWebNativeCompat } from './src/utils/webNativeCompat';
+import { installWebDocumentLayout, installWebNativeCompat } from './src/utils/webNativeCompat';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
+installWebDocumentLayout();
 installWebNativeCompat();
 registerServiceWorker();
 
@@ -128,7 +129,18 @@ const appShellStyles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: Platform.OS === 'web' ? '#f9fafb' : '#16a34a',
-    ...(Platform.OS === 'web' ? { alignItems: 'center' } : null),
+    ...(Platform.OS === 'web'
+      ? ({
+          alignItems: 'center',
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
+          minHeight: 0,
+          height: '100%',
+          maxHeight: '100%',
+          overflow: 'hidden',
+        } as const)
+      : null),
   },
   shell: {
     flex: 1,
@@ -137,7 +149,11 @@ const appShellStyles = StyleSheet.create({
     ...(Platform.OS === 'web'
       ? ({
           maxWidth: 1180,
-          minHeight: '100vh',
+          flex: 1,
+          minWidth: 0,
+          minHeight: 0,
+          height: '100%',
+          maxHeight: '100%',
           alignSelf: 'center',
           shadowColor: '#000000',
           shadowOpacity: 0.08,
@@ -146,12 +162,22 @@ const appShellStyles = StyleSheet.create({
         } as any)
       : null),
   },
+  /** Fills #root so NavigationContainer + tab scenes get a bounded height on RN-web (mobile PWA). */
+  webNavHost: {
+    flex: 1,
+    minHeight: 0,
+    minWidth: 0,
+    width: '100%',
+    height: '100%',
+    maxHeight: '100%',
+  },
 });
 
 function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <BottomTabBar {...props} />}
+      sceneContainerStyle={Platform.OS === 'web' ? { flex: 1, minHeight: 0, minWidth: 0 } : undefined}
       screenOptions={{
         headerShown: false,
       }}
@@ -198,6 +224,9 @@ function RootNavigator() {
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
+          ...(Platform.OS === 'web'
+            ? { cardStyle: { flex: 1, minHeight: 0, minWidth: 0 } as const }
+            : {}),
         }}
         initialRouteName={initialRouteName}
       >
@@ -280,12 +309,15 @@ export default function App() {
   }, [releasePath]);
 
   useEffect(() => {
-    checkRelease();
+    const interaction = InteractionManager.runAfterInteractions(() => {
+      checkRelease();
+    });
     const subscription = AppState.addEventListener('change', (state) => {
       if (state === 'active') checkRelease();
     });
 
     return () => {
+      interaction.cancel?.();
       subscription.remove();
     };
   }, [checkRelease]);
@@ -315,14 +347,16 @@ export default function App() {
     <GestureHandlerRootView style={appShellStyles.root}>
       <View style={appShellStyles.shell}>
         <SafeAreaProvider>
-          <AuthProvider>
-            <RootNavigator />
-            <AppReleaseSheet
-              notice={releaseNotice}
-              onDismiss={handleDismissRelease}
-              onUpdate={handleUpdateRelease}
-            />
-          </AuthProvider>
+          <View style={Platform.OS === 'web' ? appShellStyles.webNavHost : { flex: 1 }}>
+            <AuthProvider>
+              <RootNavigator />
+              <AppReleaseSheet
+                notice={releaseNotice}
+                onDismiss={handleDismissRelease}
+                onUpdate={handleUpdateRelease}
+              />
+            </AuthProvider>
+          </View>
         </SafeAreaProvider>
       </View>
     </GestureHandlerRootView>
