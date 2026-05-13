@@ -1,4 +1,4 @@
-const CACHE_NAME = '7aside-static-v5';
+const CACHE_NAME = '7aside-static-v7';
 // Keep the install shell small: '/' + manifest only. /icon.png is large and is
 // fetched when the browser/PWA needs it; precaching it slowed SW activation.
 const APP_SHELL = ['/', '/manifest.json'];
@@ -12,6 +12,7 @@ function isApiPath(pathname) {
     pathname.startsWith('/admin') ||
     pathname.startsWith('/payouts') ||
     pathname.startsWith('/easypay') ||
+    pathname.startsWith('/push') ||
     pathname.startsWith('/app/')
   );
 }
@@ -56,5 +57,56 @@ self.addEventListener('fetch', (event) => {
         return response;
       })
       .catch(() => caches.match(request).then((cached) => cached || caches.match('/')))
+  );
+});
+
+self.addEventListener('push', (event) => {
+  let title = '7a-side';
+  let body = '';
+  let payloadData = {};
+  try {
+    if (event.data) {
+      const parsed = JSON.parse(event.data.text());
+      if (parsed.title) title = String(parsed.title);
+      if (parsed.body) body = String(parsed.body);
+      if (parsed.data && typeof parsed.data === 'object') payloadData = parsed.data;
+    }
+  } catch (_) {
+    body = event.data ? String(event.data.text()) : '';
+  }
+  const tag = payloadData && payloadData.bookingId ? `booking-${payloadData.bookingId}` : '7aside-push';
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body,
+      tag,
+      data: payloadData,
+      icon: '/icon.png',
+      badge: '/icon.png',
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const bookingId = data.bookingId != null ? String(data.bookingId) : '';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      if (bookingId) {
+        clientList.forEach((client) => {
+          client.postMessage({ type: 'OPEN_OWNER_BOOKING', bookingId });
+        });
+      }
+      if (clientList.length > 0 && 'focus' in clientList[0]) {
+        return clientList[0].focus();
+      }
+      if (bookingId && self.clients.openWindow) {
+        const url = new URL(`/owner-booking/${encodeURIComponent(bookingId)}`, self.location.origin).href;
+        return self.clients.openWindow(url);
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(new URL('/', self.location.origin).href);
+      }
+    }),
   );
 });

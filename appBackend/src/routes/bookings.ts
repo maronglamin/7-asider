@@ -108,7 +108,7 @@ function resolveBookingType(kind: any): 'HOURLY'|'FULL_DAY'|'MULTI_DAY'|'CUSTOM'
   return 'HOURLY';
 }
 
-function buildBookingPlan(input: any, field: any) {
+function buildBookingPlan(input: any, field: any, opts?: { allowNonApprovedField?: boolean }) {
   const {
     fieldId,
     kind,
@@ -123,7 +123,7 @@ function buildBookingPlan(input: any, field: any) {
   const resolvedFieldId = fieldId || field?.id;
   if (!resolvedFieldId) throw new Error('fieldId is required');
   if (!field) throw new Error('Field not found');
-  if (field.status !== 'APPROVED') throw new Error('Field not available for booking');
+  if (!opts?.allowNonApprovedField && field.status !== 'APPROVED') throw new Error('Field not available for booking');
 
   const bookingType = resolveBookingType(kind);
   const pricePerHour: number = field.pricePerHour != null ? Number(field.pricePerHour) : 0;
@@ -189,7 +189,16 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
 
     if (!fieldId) return res.status(400).json({ error: 'fieldId is required' });
     console.log('[POST /bookings] user:', userId, 'body:', req.body);
-    const field = await (prisma as any).fieldKyc.findUnique({ where: { id: fieldId } });
+    const field = await (prisma as any).fieldKyc.findUnique({
+      where: { id: fieldId },
+      select: {
+        id: true,
+        name: true,
+        userId: true,
+        status: true,
+        pricePerHour: true,
+      },
+    });
     if (!field) return res.status(404).json({ error: 'Field not found' });
     const {
       bookingType,
@@ -234,6 +243,22 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
     });
 
     console.log('[POST /bookings] created booking id:', result.id);
+
+    if (field.userId && field.userId !== userId) {
+      const booker = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      });
+      const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+      const { notifyFieldOwnerNewBooking } = await import('../services/pushNotifications');
+      void notifyFieldOwnerNewBooking({
+        ownerUserId: field.userId,
+        fieldName: field.name || 'Your field',
+        bookingId: result.id,
+        bookerLabel,
+      }).catch((err) => console.warn('[POST /bookings] owner push failed', err));
+    }
+
     res.json({ ok: true, bookingId: result.id, totalAmount });
   } catch (e: any) {
     if (e.code === 'P2002') {
@@ -307,6 +332,9 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
             name: true,
             address: true,
             city: true,
+            status: true,
+            rejectionReason: true,
+            suspensionReason: true,
             images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
             pricePerHour: true,
             userId: true,
@@ -390,7 +418,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
       totalAmount,
       timezone,
       note,
-    } = buildBookingPlan({ ...req.body, fieldId: existing.fieldId }, existing.field);
+    } = buildBookingPlan({ ...req.body, fieldId: existing.fieldId }, existing.field, { allowNonApprovedField: true });
 
     const updated = await (prisma as any).$transaction(async (tx: any) => {
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
@@ -421,7 +449,10 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
               name: true,
               address: true,
               city: true,
-              images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
+              status: true,
+              rejectionReason: true,
+              suspensionReason: true,
+              images: { select: { id: true, url: true, order: true }, orderBy: { order: 'asc' } },
               pricePerHour: true,
               userId: true,
             },
@@ -432,6 +463,22 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
     });
 
     const { _count, ...booking } = updated;
+    const fieldOwnerId = booking.field?.userId;
+    if (fieldOwnerId && fieldOwnerId !== userId) {
+      const booker = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      });
+      const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+      const { notifyFieldOwnerBookingRescheduled } = await import('../services/pushNotifications');
+      void notifyFieldOwnerBookingRescheduled({
+        ownerUserId: fieldOwnerId,
+        fieldName: booking.field?.name || 'Your field',
+        bookingId: booking.id,
+        bookerLabel,
+      }).catch((err) => console.warn('[PATCH /bookings/:id/reschedule] owner push failed', err));
+    }
+
     res.json({
       ok: true,
       booking: {
@@ -568,7 +615,11 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
             address: true,
             city: true,
             userId: true,
-            images: { select: { url: true, order: true }, orderBy: { order: 'asc' }, take: 1 },
+            status: true,
+            rejectionReason: true,
+            suspensionReason: true,
+            pricePerHour: true,
+            images: { select: { id: true, url: true, order: true }, orderBy: { order: 'asc' } },
           },
         },
         user: { select: { id: true, email: true, name: true } },

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { deleteAuthStorageItem, getAuthStorageItem, setAuthStorageItem } from '../utils/authStorage';
+import { registerOwnerPushForCurrentSession } from '../utils/registerOwnerPush';
 
 type User = { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } | null;
 
@@ -48,6 +49,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!token || !user?.id) return undefined;
+    const handle = setTimeout(() => {
+      void registerOwnerPushForCurrentSession(token);
+    }, 1200);
+    return () => clearTimeout(handle);
+  }, [token, user?.id]);
 
   return (
     <AuthContext.Provider value={{ user, token, setAuth, clearAuth }}>

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Modal } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Modal, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
@@ -10,7 +10,10 @@ import { useAuth } from '../../context/AuthContext';
 export default function OwnerBookingDetail({ navigation, route }: any) {
   const { token } = useAuth();
   const paramBooking = route?.params?.booking;
-  const [booking, setBooking] = useState<any>(paramBooking);
+  const bookingIdParam = route?.params?.bookingId as string | undefined;
+  const [booking, setBooking] = useState<any>(paramBooking || null);
+  const [loadingDetail, setLoadingDetail] = useState<boolean>(() => Boolean(bookingIdParam && !paramBooking?.id));
+  const [loadError, setLoadError] = useState<string | null>(null);
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
@@ -21,12 +24,22 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
 
-  const start = useMemo(() => new Date(booking.startAt), [booking.startAt]);
-  const end = useMemo(() => new Date(booking.endAt), [booking.endAt]);
-  const durationHours = Math.max(1, Math.round((+end - +start) / 3600000));
+  const start = useMemo(
+    () => (booking?.startAt ? new Date(booking.startAt) : new Date(NaN)),
+    [booking?.startAt],
+  );
+  const end = useMemo(
+    () => (booking?.endAt ? new Date(booking.endAt) : new Date(NaN)),
+    [booking?.endAt],
+  );
+  const durationHours =
+    booking?.startAt && booking?.endAt && !Number.isNaN(+start) && !Number.isNaN(+end)
+      ? Math.max(1, Math.round((+end - +start) / 3600000))
+      : 0;
   const typeLabel = String(booking?.type || '').replace('_', ' ') || 'Hourly';
 
   const breakdown: { day: string; slots: string[] }[] = useMemo(() => {
+    if (!booking?.startAt || !booking?.endAt || Number.isNaN(+start) || Number.isNaN(+end)) return [];
     const slots: { day: string; slot: string }[] = [];
     const pad = (n: number) => String(n).padStart(2, '0');
     const cursor = new Date(start);
@@ -45,7 +58,42 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
       (byDay[s.day] as string[]).push(s.slot);
     }
     return Object.keys(byDay).map((day) => ({ day, slots: byDay[day] || [] }));
-  }, [start, end]);
+  }, [start, end, booking?.startAt, booking?.endAt]);
+
+  useEffect(() => {
+    const bid = bookingIdParam ? String(bookingIdParam).trim() : '';
+    if (!bid || paramBooking?.id) return;
+    if (!token) {
+      setLoadError('Sign in to view this booking.');
+      setLoadingDetail(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoadingDetail(true);
+      setLoadError(null);
+      try {
+        const res = await apiGetAuth<{ booking: any }>(`/bookings/${encodeURIComponent(bid)}`, token as string);
+        if (cancelled) return;
+        if (res?.booking) setBooking(res.booking);
+        else setLoadError('Booking not found.');
+      } catch (e: any) {
+        if (!cancelled) setLoadError(e?.message || 'Could not load booking.');
+      } finally {
+        if (!cancelled) setLoadingDetail(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [bookingIdParam, paramBooking?.id, token]);
+
+  useEffect(() => {
+    if (paramBooking?.id) {
+      setLoadingDetail(false);
+      setLoadError(null);
+    }
+  }, [paramBooking?.id]);
 
   const onComplete = async () => {
     try {
@@ -101,6 +149,7 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   }, [paramBooking?.id]);
 
   useEffect(() => {
+    if (!booking?.id || !token) return;
     (async () => {
       try {
         setLoadingReceipts(true);
@@ -113,6 +162,30 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
       }
     })();
   }, [booking?.id, token]);
+
+  if (loadingDetail || !booking?.id) {
+    return (
+      <View style={styles.screen}>
+        <SafeAreaView style={styles.safeTop} edges={["top"]}>
+          <StatusBar style="light" />
+          <View style={styles.headerRow}>
+            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+              <ChevronLeft size={24} color="#ffffff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Booking Detail</Text>
+            <View style={{ width: 32 }} />
+          </View>
+        </SafeAreaView>
+        <View style={[styles.content, { justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
+          {loadError ? (
+            <Text style={styles.meta}>{loadError}</Text>
+          ) : (
+            <ActivityIndicator size="large" color="#16a34a" />
+          )}
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.screen}>
@@ -148,11 +221,11 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
         <View style={styles.blockRowBetween}>
           <View>
             <Text style={styles.label}>From</Text>
-            <Text style={styles.value}>{start.toLocaleString()}</Text>
+            <Text style={styles.value}>{Number.isNaN(+start) ? '—' : start.toLocaleString()}</Text>
           </View>
           <View>
             <Text style={styles.label}>To</Text>
-            <Text style={styles.value}>{end.toLocaleString()}</Text>
+            <Text style={styles.value}>{Number.isNaN(+end) ? '—' : end.toLocaleString()}</Text>
           </View>
         </View>
         <View style={styles.blockRowBetween}>

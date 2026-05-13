@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, Clock } from 'lucide-react-native';
 import { apiGetAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 
 interface Props {
   navigation?: any;
@@ -13,8 +14,11 @@ interface Props {
 
 export default function CustomerBookedDetails({ navigation, route }: Props) {
   const { token } = useAuth() as any;
-  const booking = route?.params?.booking;
+  const bookingId = route?.params?.booking?.id as string | undefined;
+  const [booking, setBooking] = useState<any>(route?.params?.booking);
   const field = booking?.field || {};
+  const fieldStatus = String(field?.status || '').toUpperCase();
+  const canBookAgain = !fieldStatus || fieldStatus === 'APPROVED';
   const canReschedule = !['CANCELLED', 'COMPLETED'].includes(String(booking?.status || '').toUpperCase());
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
@@ -51,11 +55,27 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
   })();
 
   useEffect(() => {
+    setBooking(route?.params?.booking);
+  }, [route?.params?.booking]);
+
+  useEffect(() => {
     (async () => {
       try {
-        if (!token || !booking?.id) return;
+        if (!token || !bookingId) return;
+        const res = await apiGetAuth<{ booking: any }>(`/bookings/${bookingId}`, token as string);
+        if (res?.booking) setBooking(res.booking);
+      } catch (_) {
+        /* keep params booking */
+      }
+    })();
+  }, [bookingId, token]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!token || !bookingId) return;
         setLoadingReceipts(true);
-        const res = await apiGetAuth<{ items: any[] }>(`/bookings/${booking.id}/receipts`, token as string);
+        const res = await apiGetAuth<{ items: any[] }>(`/bookings/${bookingId}/receipts`, token as string);
         setReceipts(res.items || []);
       } catch (_) {
         setReceipts([]);
@@ -63,7 +83,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
         setLoadingReceipts(false);
       }
     })();
-  }, [booking?.id, token]);
+  }, [bookingId, token]);
 
   return (
     <View style={styles.container}>
@@ -82,6 +102,12 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           <Text style={styles.fieldName}>{field?.name || 'Field'}</Text>
           <Text style={styles.fieldSub}>{field?.address || field?.city || ''}</Text>
         </View>
+
+        <BookedFieldStatusBanner
+          status={field?.status}
+          rejectionReason={field?.rejectionReason}
+          suspensionReason={field?.suspensionReason}
+        />
 
         {/* Summary Cards */}
         <View style={styles.summaryBlock}>
@@ -158,8 +184,12 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={styles.primary}
-            onPress={() => navigation?.navigate('Booking', { fieldId: field?.id })}
+            style={[styles.primary, !canBookAgain && styles.primaryDisabled]}
+            disabled={!canBookAgain}
+            onPress={() => {
+              if (!canBookAgain) return;
+              navigation?.navigate('Booking', { fieldId: field?.id });
+            }}
           >
             <Text style={styles.primaryText}>Book Again</Text>
           </TouchableOpacity>
@@ -350,6 +380,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     paddingVertical: 14,
+  },
+  primaryDisabled: {
+    backgroundColor: '#9ca3af',
   },
   primaryText: {
     color: '#ffffff',

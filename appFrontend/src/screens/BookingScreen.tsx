@@ -15,7 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, Clock, Minus, Plus } from 'lucide-react-native';
-import { apiGet, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
+import { apiGet, apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
+import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 import { useAuth } from '../context/AuthContext';
 
 type DateItem = {
@@ -130,13 +131,45 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       return;
     }
     let mounted = true;
+    const fromRoute = route?.params?.booking as any;
     (async () => {
       try {
-        const data = await apiGet<any>(`/fields/kyc/public/${fieldId}?all=1`);
+        setLoading(true);
+        if (isReschedule && existingBookingId && token) {
+          const res = await apiGetAuth<{ booking: any }>(`/bookings/${existingBookingId}`, token);
+          if (!mounted) return;
+          const f = res?.booking?.field;
+          if (f) {
+            setField({
+              ...f,
+              pricePerHour: f.pricePerHour != null ? Number(f.pricePerHour) : null,
+            });
+          }
+          return;
+        }
+        if (isReschedule && fromRoute?.field) {
+          const f = fromRoute.field;
+          if (!mounted) return;
+          setField({
+            ...f,
+            pricePerHour: f.pricePerHour != null ? Number(f.pricePerHour) : null,
+          });
+          return;
+        }
+        const data = await apiGet<any>(`/fields/kyc/public/${fieldId}`);
         if (!mounted) return;
         setField(data);
       } catch (_e) {
-        // keep field null; could show a toast
+        if (!mounted) return;
+        if (isReschedule && fromRoute?.field) {
+          const f = fromRoute.field;
+          setField({
+            ...f,
+            pricePerHour: f.pricePerHour != null ? Number(f.pricePerHour) : null,
+          });
+        } else {
+          setField(null);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -144,15 +177,26 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     return () => {
       mounted = false;
     };
-  }, [route?.params?.fieldId]);
+  }, [fieldId, isReschedule, existingBookingId, token, route?.params?.booking?.id]);
 
   const onRefresh = React.useCallback(async () => {
+    const fromRoute = route?.params?.booking as any;
     try {
       setRefreshing(true);
       if (!fieldId) return;
-      const data = await apiGet<any>(`/fields/kyc/public/${fieldId}?all=1`);
-      setField(data);
-      // reload availability if date already selected
+      if (isReschedule && existingBookingId && token) {
+        const res = await apiGetAuth<{ booking: any }>(`/bookings/${existingBookingId}`, token);
+        const f = res?.booking?.field;
+        if (f) {
+          setField({
+            ...f,
+            pricePerHour: f.pricePerHour != null ? Number(f.pricePerHour) : null,
+          });
+        }
+      } else {
+        const data = await apiGet<any>(`/fields/kyc/public/${fieldId}`);
+        setField(data);
+      }
       if (selectedDate) {
         const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
           buildAvailabilityPath(selectedDate)
@@ -161,11 +205,17 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         setBookedHours(taken);
       }
     } catch (_e) {
-      // ignore
+      if (isReschedule && fromRoute?.field) {
+        const f = fromRoute.field;
+        setField({
+          ...f,
+          pricePerHour: f.pricePerHour != null ? Number(f.pricePerHour) : null,
+        });
+      }
     } finally {
       setRefreshing(false);
     }
-  }, [buildAvailabilityPath, fieldId, selectedDate]);
+  }, [buildAvailabilityPath, fieldId, isReschedule, existingBookingId, token, selectedDate, route?.params?.booking]);
 
   // Generate next 7 days
   const generateDates = (anchorDate?: string): DateItem[] => {
@@ -320,7 +370,9 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
 
   const pricePerHour = useMemo(() => {
     const n = field?.pricePerHour;
-    return typeof n === 'number' ? n : null;
+    if (n == null) return null;
+    const num = typeof n === 'number' ? n : Number(n);
+    return Number.isFinite(num) ? num : null;
   }, [field]);
 
   const halfDayHours = 12;
@@ -363,9 +415,9 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
               setImageIndex(idx);
             }}
           >
-            {field.images.map((img: any) => (
+            {field.images.map((img: any, idx: number) => (
               <Image
-                key={img.id}
+                key={img.id || `img-${idx}`}
                 source={{ uri: resolveMediaUrl(img.url) || undefined }}
                 style={[styles.fieldImage, { width: contentWidth }]}
               />
@@ -403,6 +455,12 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
           <Text style={styles.rescheduleNote}>Choose a new available date and confirm to update this booking.</Text>
         )}
       </View>
+
+      <BookedFieldStatusBanner
+        status={field?.status}
+        rejectionReason={field?.rejectionReason}
+        suspensionReason={field?.suspensionReason}
+      />
 
       <ScrollView
         style={styles.content}

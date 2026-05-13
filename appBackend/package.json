@@ -21,6 +21,7 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^24.9.1",
     "@types/node-fetch": "^2.6.13",
+    "@types/web-push": "^3.6.4",
     "@types/pg": "^8.15.6",
     "nodemon": "^3.1.10",
     "prisma": "^6.18.0",
@@ -33,6 +34,7 @@
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
+    "expo-server-sdk": "^3.15.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
@@ -41,6 +43,7 @@
     "passport-facebook": "^3.0.0",
     "passport-google-oauth20": "^2.0.0",
     "pg": "^8.16.3",
-    "resend": "^6.9.4"
+    "resend": "^6.9.4",
+    "web-push": "^3.6.7"
   }
 }

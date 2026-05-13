@@ -61,8 +61,6 @@ export default function FindFieldScreen({ navigation }: Props) {
         params.set('sort', backendSort);
         params.set('limit', String(limit));
         params.set('offset', String(reset ? 0 : offset));
-        // testing flag: include all statuses
-        params.set('all', '1');
         // removed city/surfaceType/hasLights filters per request
 
         const res = await apiGet<ApiResponse>(`/fields/kyc/public?${params.toString()}`);

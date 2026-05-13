@@ -92,8 +92,8 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
   }
 });
 
-// GET /fields/kyc/public - public listing with search/sort/pagination
-// Query: ?q=term&sort=price_asc|price_desc|recent|nearest&limit=12&offset=0&city=&surfaceType=&hasLights=true|false&all=1
+// GET /fields/kyc/public - public listing with search/sort/pagination (approved fields only)
+// Query: ?q=term&sort=price_asc|price_desc|recent|nearest&limit=12&offset=0&city=&surfaceType=&hasLights=true|false
 router.get('/public', async (req: Request, res: Response) => {
   try {
     const qRaw = (req.query.q as string | undefined) || '';
@@ -104,10 +104,9 @@ router.get('/public', async (req: Request, res: Response) => {
     const city = (req.query.city as string | undefined)?.trim();
     const surfaceType = (req.query.surfaceType as string | undefined)?.trim();
     const hasLightsParam = (req.query.hasLights as string | undefined)?.toLowerCase();
-    const includeAll = ((req.query.all as string | undefined)?.toLowerCase() === '1' || (req.query.all as string | undefined)?.toLowerCase() === 'true');
 
     const where: any = {
-      ...(!includeAll ? { status: 'APPROVED' } : {}),
+      status: 'APPROVED',
       ...(q
         ? {
             OR: [
@@ -164,18 +163,16 @@ router.get('/public', async (req: Request, res: Response) => {
   }
 });
 
-// GET /fields/kyc/public/:id - public fetch single field
-// Query: ?all=1 (testing to include any status)
+// GET /fields/kyc/public/:id - public fetch single field (approved only)
 router.get('/public/:id', async (req: Request, res: Response) => {
   try {
     const id = req.params.id;
-    const includeAll = ((req.query.all as string | undefined)?.toLowerCase() === '1' || (req.query.all as string | undefined)?.toLowerCase() === 'true');
     const item = await (prisma as any).fieldKyc.findUnique({
       where: { id },
       include: { images: { orderBy: { order: 'asc' } } },
     });
     if (!item) return res.status(404).json({ error: 'Not found' });
-    if (!includeAll && item.status !== 'APPROVED') return res.status(404).json({ error: 'Not found' });
+    if (item.status !== 'APPROVED') return res.status(404).json({ error: 'Not found' });
     const result = { ...item, pricePerHour: item.pricePerHour != null ? Number(item.pricePerHour) : null };
     res.json(result);
   } catch (e: any) {

@@ -37,6 +37,8 @@ module.exports = ({ config }) => ({
     API_BASE: process.env.API_BASE || productionApiBase,
     APP_VERSION: appJsonVersion || config.version || '',
     APP_BUILD: appJsonVersionCode != null ? String(appJsonVersionCode) : '',
+    // Web Push: public key only (from .env). Never put WEB_PUSH_VAPID_PRIVATE_KEY here — it must stay server-side only.
+    WEB_PUSH_VAPID_PUBLIC_KEY: (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim(),
   },
   plugins: [
     ...(config.plugins || []),
@@ -49,6 +51,14 @@ module.exports = ({ config }) => ({
           'To attach photos when uploading payment receipts for bookings or adding images of your field for listing. Photos are only used for these features.',
         cameraPermission: false,
         microphonePermission: false,
+      },
+    ],
+    [
+      'expo-notifications',
+      {
+        icon: './assets/icon.png',
+        color: '#16a34a',
+        sounds: [],
       },
     ],
   ],

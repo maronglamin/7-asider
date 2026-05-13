@@ -51,6 +51,9 @@ import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { apiGet } from './src/api/client';
 import { registerServiceWorker } from './src/pwa/registerServiceWorker';
 import { installWebDocumentLayout, installWebNativeCompat } from './src/utils/webNativeCompat';
+import { navigationRef, onNavigationContainerReady, flushPendingOwnerBookingNavigation } from './src/navigation/navigationRef';
+import { getNavigationLinking } from './src/navigation/linking';
+import { PushDeepLinkHandler } from './src/navigation/PushDeepLinkHandler';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -217,19 +220,31 @@ function MainTabs() {
 function RootNavigator() {
   const { user, token } = useAuth();
   const initialRouteName = user && token ? 'Main' : 'Onboarding';
+  const linking = useMemo(() => getNavigationLinking(), []);
+
+  useEffect(() => {
+    if (user && token) {
+      flushPendingOwnerBookingNavigation();
+    }
+  }, [user, token]);
 
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          ...(Platform.OS === 'web'
-            ? { cardStyle: { flex: 1, minHeight: 0, minWidth: 0 } as const }
-            : {}),
-        }}
-        initialRouteName={initialRouteName}
-      >
+    <NavigationContainer
+      ref={navigationRef}
+      linking={linking}
+      onReady={onNavigationContainerReady}
+    >
+      <View style={{ flex: 1 }}>
+        <StatusBar style="light" />
+        <Stack.Navigator
+          screenOptions={{
+            headerShown: false,
+            ...(Platform.OS === 'web'
+              ? { cardStyle: { flex: 1, minHeight: 0, minWidth: 0 } as const }
+              : {}),
+          }}
+          initialRouteName={initialRouteName}
+        >
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
@@ -259,6 +274,8 @@ function RootNavigator() {
         <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
         <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
       </Stack.Navigator>
+      <PushDeepLinkHandler />
+      </View>
     </NavigationContainer>
   );
 }

@@ -12,6 +12,7 @@ import bookingsRoutes from './routes/bookings';
 import adminRoutes from './routes/admin';
 import payoutsRoutes from './routes/payouts';
 import easypayRoutes from './routes/easypay';
+import pushRoutes from './routes/push';
 import { handleEasypayPartnerWebhook } from './routes/easypayWebhook';
 import path from 'path';
 
@@ -45,6 +46,7 @@ app.use('/fields/bookings', bookingsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/payouts', payoutsRoutes);
 app.use('/easypay', easypayRoutes);
+app.use('/push', pushRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
