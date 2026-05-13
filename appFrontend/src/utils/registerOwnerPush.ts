@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
@@ -73,11 +73,38 @@ async function tryExpoTokenOnWeb(authToken: string): Promise<void> {
   }
 }
 
+/**
+ * Play Store–friendly disclosure before the Android POST_NOTIFICATIONS prompt.
+ * Returns true only if the user chooses to continue to the system permission dialog.
+ */
+function confirmAndroidNotificationDisclosure(): Promise<boolean> {
+  if (Platform.OS !== 'android') return Promise.resolve(true);
+  const appName = String(Constants.expoConfig?.name || '7a-side').trim() || '7a-side';
+  return new Promise((resolve) => {
+    Alert.alert(
+      'Booking alerts',
+      `${appName} uses notifications only to tell you about booking activity that may need your attention — for example when a customer books or reschedules time at a field you manage.\n\n` +
+        'This permission is optional. You can tap Not now and keep using the app, or allow alerts and change your choice anytime in Android Settings → Apps → ' +
+        appName +
+        ' → Notifications.',
+      [
+        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+        { text: 'Allow notifications', onPress: () => resolve(true) },
+      ],
+      { cancelable: true, onDismiss: () => resolve(false) },
+    );
+  });
+}
+
 async function registerNativeExpo(authToken: string): Promise<void> {
   if (!Device.isDevice) return;
   const { status: existing } = await Notifications.getPermissionsAsync();
   let st = existing;
   if (st !== 'granted') {
+    if (Platform.OS === 'android') {
+      const proceed = await confirmAndroidNotificationDisclosure();
+      if (!proceed) return;
+    }
     const { status } = await Notifications.requestPermissionsAsync();
     st = status;
   }
