@@ -59,9 +59,9 @@ function getRangeForPreset(preset: DatePreset): { start: Date; end: Date; label:
   return { start, end, label: 'This month' };
 }
 
-function formatGmd(n: number): string {
+function formatDalasi(n: number): string {
   const v = Number.isFinite(n) ? n : 0;
-  return `GMD ${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  return `D ${v.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 function formatReportDate(d: Date): string {
@@ -228,7 +228,7 @@ export default function OwnerBookingsScreen() {
         <View style={styles.body}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.title} numberOfLines={1}>{field?.name || 'Field'}</Text>
-            <Text style={styles.priceRight}>GMD {item.totalAmount}</Text>
+            <Text style={styles.priceRight}>{formatDalasi(Number(item.totalAmount))}</Text>
           </View>
           <Text style={styles.sub} numberOfLines={1}>{field?.address || field?.city || ''}</Text>
           <View style={styles.chipsRow}>
@@ -300,7 +300,7 @@ export default function OwnerBookingsScreen() {
           </Text>
         </View>
         <View style={styles.recentRowRight}>
-          <Text style={styles.recentAmount}>GMD {item.totalAmount}</Text>
+          <Text style={styles.recentAmount}>{formatDalasi(Number(item.totalAmount))}</Text>
           <View style={[styles.payDot, { backgroundColor: paid ? '#22c55e' : '#eab308' }]} />
         </View>
         <ChevronRight size={18} color="#a1a1aa" />
@@ -396,22 +396,22 @@ export default function OwnerBookingsScreen() {
 
         {summary ? (
           <View style={styles.summaryStrip}>
-            <View style={styles.summaryCol}>
+            <View style={[styles.summaryCol, styles.summaryColBookings]}>
               <Text style={styles.summaryStripLabel}>Bookings</Text>
               <Text style={styles.summaryStripValue}>{summary.bookingCount}</Text>
             </View>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryCol}>
+            <View style={[styles.summaryCol, styles.summaryColMoney]}>
               <Text style={styles.summaryStripLabel}>Collected</Text>
-              <Text style={[styles.summaryStripValue, styles.summaryStripCollected]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {formatGmd(summary.collectedGmd)}
+              <Text style={[styles.summaryStripValueMoney, styles.summaryStripCollected]}>
+                {formatDalasi(summary.collectedGmd)}
               </Text>
             </View>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryCol}>
+            <View style={[styles.summaryCol, styles.summaryColMoney]}>
               <Text style={styles.summaryStripLabel}>Outstanding</Text>
-              <Text style={[styles.summaryStripValue, styles.summaryStripOutstanding]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
-                {formatGmd(summary.outstandingGmd)}
+              <Text style={[styles.summaryStripValueMoney, styles.summaryStripOutstanding]}>
+                {formatDalasi(summary.outstandingGmd)}
               </Text>
             </View>
           </View>
@@ -663,7 +663,22 @@ const styles = StyleSheet.create({
     borderColor: '#e4e4e7',
     overflow: 'hidden',
   },
-  summaryCol: { flex: 1, paddingVertical: 14, paddingHorizontal: 8, alignItems: 'center', justifyContent: 'center' },
+  summaryCol: { justifyContent: 'center', alignItems: 'center' },
+  summaryColBookings: {
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 64,
+    maxWidth: 88,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+  },
+  summaryColMoney: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
   summaryDivider: { width: StyleSheet.hairlineWidth, backgroundColor: '#e4e4e7' },
   summaryStripLabel: {
     fontSize: 11,
@@ -672,12 +687,21 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 6,
+    textAlign: 'center',
   },
   summaryStripValue: {
     fontSize: 15,
     fontWeight: '600',
     color: '#18181b',
     textAlign: 'center',
+  },
+  summaryStripValueMoney: {
+    width: '100%',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#18181b',
+    textAlign: 'center',
+    lineHeight: 17,
   },
   summaryStripCollected: { color: '#166534' },
   summaryStripOutstanding: { color: '#a16207' },

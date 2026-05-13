@@ -173,7 +173,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
                 accessibilityRole="button"
                 accessibilityLabel="Cancel booking"
               >
-                <X size={15} color="rgba(255,255,255,0.95)" strokeWidth={2.25} />
+                <X size={15} color="#ffffff" strokeWidth={2.25} />
                 <Text style={styles.cancelHeroCapsuleText}>Cancel booking</Text>
               </TouchableOpacity>
             </View>
@@ -423,10 +423,10 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     paddingHorizontal: 16,
-    paddingTop: 10,
-    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    paddingTop: 12,
+    backgroundColor: 'rgba(15, 23, 42, 0.78)',
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.14)',
+    borderTopColor: 'rgba(255,255,255,0.22)',
   },
   heroFooterRow: {
     flexDirection: 'row',
@@ -437,18 +437,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 100,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.22)',
+    borderColor: 'rgba(255,255,255,0.38)',
   },
   cancelHeroCapsuleText: {
-    color: 'rgba(255,255,255,0.96)',
+    color: '#ffffff',
     fontSize: 14,
     fontWeight: '600',
     letterSpacing: 0.1,
+    textShadowColor: 'rgba(0,0,0,0.35)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
   },
   backBtn: {
     marginTop: 16,
