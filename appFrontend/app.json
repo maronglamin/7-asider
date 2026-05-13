@@ -32,7 +32,7 @@
         "backgroundColor": "#16a34a"
       },
       "package": "com.sevenaside.app",
-      "versionCode": 31,
+      "versionCode": 32,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
