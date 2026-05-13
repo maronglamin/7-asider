@@ -470,12 +470,20 @@ export function BookScreen({ navigation }: BookScreenProps) {
                     onSelect={() => navigation?.navigate('CustomerBookedDetails', { booking: b })}
                   />
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 6 }}>
-                    {String(b.paymentStatus || '').toUpperCase() === 'PAID' ? (
+                    {String(b.status || '').toUpperCase() === 'CANCELLED' ? (
+                      <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
+                        <Text style={{ color: '#991b1b', fontWeight: '700', fontSize: 13 }}>Cancelled</Text>
+                      </View>
+                    ) : String(b.status || '').toUpperCase() === 'COMPLETED' ? (
+                      <View style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd' }}>
+                        <Text style={{ color: '#075985', fontWeight: '700', fontSize: 13 }}>Completed</Text>
+                      </View>
+                    ) : String(b.paymentStatus || '').toUpperCase() === 'PAID' ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
                         <CheckCircle size={16} color="#166534" />
                         <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
                       </View>
-                    ) : String(b.status || '').toUpperCase() !== 'CANCELLED' ? (
+                    ) : (
                       <TouchableOpacity
                         style={{
                           flexDirection: 'row',
@@ -492,7 +500,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                         <CreditCard size={16} color="#ffffff" />
                         <Text style={{ color: '#ffffff', fontWeight: '800' }}>Pay with directPay</Text>
                       </TouchableOpacity>
-                    ) : null}
+                    )}
                   </View>
                 </View>
               );

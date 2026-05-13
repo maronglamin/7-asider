@@ -1,9 +1,20 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Image, ScrollView, TouchableOpacity, Modal } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  ScrollView,
+  TouchableOpacity,
+  Modal,
+  ActivityIndicator,
+  Pressable,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, Calendar, Clock } from 'lucide-react-native';
-import { apiGetAuth, resolveMediaUrl } from '../api/client';
+import * as Animatable from 'react-native-animatable';
+import { ArrowLeft, Calendar, Clock, X, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 
@@ -13,13 +24,21 @@ interface Props {
 }
 
 export default function CustomerBookedDetails({ navigation, route }: Props) {
+  const insets = useSafeAreaInsets();
   const { token } = useAuth() as any;
   const bookingId = route?.params?.booking?.id as string | undefined;
   const [booking, setBooking] = useState<any>(route?.params?.booking);
   const field = booking?.field || {};
   const fieldStatus = String(field?.status || '').toUpperCase();
   const canBookAgain = !fieldStatus || fieldStatus === 'APPROVED';
-  const canReschedule = !['CANCELLED', 'COMPLETED'].includes(String(booking?.status || '').toUpperCase());
+  const bookingStatusUpper = String(booking?.status || '').toUpperCase();
+  const canReschedule = !['CANCELLED', 'COMPLETED'].includes(bookingStatusUpper);
+  const canCancelBooking = Boolean(token && bookingId && !['CANCELLED', 'COMPLETED'].includes(bookingStatusUpper));
+
+  type CancelSheetPhase = 'confirm' | 'loading' | 'success' | 'error';
+  const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
+  const [cancelSheetPhase, setCancelSheetPhase] = useState<CancelSheetPhase>('confirm');
+  const [cancelSheetError, setCancelSheetError] = useState<string | undefined>();
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -85,6 +104,53 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
     })();
   }, [bookingId, token]);
 
+  const scheduleSummary =
+    start && end
+      ? `${start.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} → ${end.toLocaleString(undefined, { timeStyle: 'short' })}`
+      : '';
+
+  const openCancelSheet = () => {
+    setCancelSheetPhase('confirm');
+    setCancelSheetError(undefined);
+    setCancelSheetVisible(true);
+  };
+
+  const closeCancelSheet = () => {
+    if (cancelSheetPhase === 'loading') return;
+    setCancelSheetVisible(false);
+  };
+
+  const executeCancelBooking = async () => {
+    if (!token || !bookingId) return;
+    setCancelSheetPhase('loading');
+    setCancelSheetError(undefined);
+    try {
+      await apiPostAuth<{ ok?: boolean }>(`/bookings/${bookingId}/cancel`, {}, token as string);
+      try {
+        const res = await apiGetAuth<{ booking: any }>(`/bookings/${bookingId}`, token as string);
+        if (res?.booking) setBooking(res.booking);
+        else setBooking((prev: any) => (prev ? { ...prev, status: 'CANCELLED' } : prev));
+      } catch {
+        setBooking((prev: any) => (prev ? { ...prev, status: 'CANCELLED' } : prev));
+      }
+      setCancelSheetPhase('success');
+    } catch (e: any) {
+      setCancelSheetError(e?.message || 'Something went wrong. Please try again.');
+      setCancelSheetPhase('error');
+    }
+  };
+
+  useEffect(() => {
+    if (!cancelSheetVisible) {
+      const t = setTimeout(() => {
+        setCancelSheetPhase('confirm');
+        setCancelSheetError(undefined);
+      }, 320);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [cancelSheetVisible]);
+
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
@@ -92,9 +158,27 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
 
       <View style={styles.imageWrap}>
         <Image source={{ uri: image }} style={styles.image} />
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()}>
-          <ArrowLeft size={22} color="#111827" />
-        </TouchableOpacity>
+        <View style={styles.imageHeroOverlay} pointerEvents="box-none">
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation?.goBack()} accessibilityLabel="Go back">
+            <ArrowLeft size={22} color="#111827" />
+          </TouchableOpacity>
+        </View>
+        {canCancelBooking ? (
+          <View style={[styles.imageFooterBar, { paddingBottom: 10 + insets.bottom }]} pointerEvents="box-none">
+            <View style={styles.heroFooterRow}>
+              <TouchableOpacity
+                style={styles.cancelHeroCapsule}
+                onPress={openCancelSheet}
+                activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel booking"
+              >
+                <X size={15} color="rgba(255,255,255,0.95)" strokeWidth={2.25} />
+                <Text style={styles.cancelHeroCapsuleText}>Cancel booking</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -211,6 +295,104 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={cancelSheetVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => {
+          if (cancelSheetPhase !== 'loading') closeCancelSheet();
+        }}
+      >
+        <View style={styles.cancelSheetRoot}>
+          <Pressable
+            style={styles.cancelSheetBackdrop}
+            onPress={() => {
+              if (cancelSheetPhase === 'confirm' || cancelSheetPhase === 'error') closeCancelSheet();
+            }}
+          />
+          <Animatable.View
+            animation="slideInUp"
+            duration={260}
+            useNativeDriver
+            style={[styles.cancelSheetPanel, { paddingBottom: Math.max(20, insets.bottom + 16) }]}
+          >
+            <View style={styles.cancelSheetGrabber} />
+            {cancelSheetPhase === 'confirm' ? (
+              <>
+                <View style={styles.cancelSheetHeaderRow}>
+                  <Text style={styles.cancelSheetTitle}>Cancel reservation?</Text>
+                  <TouchableOpacity onPress={closeCancelSheet} hitSlop={14} accessibilityLabel="Close">
+                    <X size={22} color="#71717a" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.cancelSheetBody}>
+                  Your time slots will be released for other players. This action cannot be undone.
+                </Text>
+                <View style={styles.cancelSheetSummary}>
+                  <Text style={styles.cancelSheetSummaryLabel}>Booking</Text>
+                  <Text style={styles.cancelSheetSummaryTitle} numberOfLines={2}>{field?.name || 'Field'}</Text>
+                  {scheduleSummary ? <Text style={styles.cancelSheetSummaryMeta}>{scheduleSummary}</Text> : null}
+                  <View style={styles.cancelSheetSummaryDivider} />
+                  <View style={styles.cancelSheetSummaryRow}>
+                    <Text style={styles.cancelSheetSummaryLabel}>Total</Text>
+                    <Text style={styles.cancelSheetSummaryAmount}>GMD {booking?.totalAmount ?? '—'}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity style={styles.cancelSheetPrimaryBtn} onPress={closeCancelSheet} activeOpacity={0.88}>
+                  <Text style={styles.cancelSheetPrimaryBtnText}>Keep reservation</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelSheetDestructiveBtn} onPress={() => void executeCancelBooking()} activeOpacity={0.88}>
+                  <Text style={styles.cancelSheetDestructiveBtnText}>Yes, cancel booking</Text>
+                </TouchableOpacity>
+              </>
+            ) : null}
+
+            {cancelSheetPhase === 'loading' ? (
+              <View style={styles.cancelSheetCenterBlock}>
+                <ActivityIndicator size="large" color="#16a34a" />
+                <Text style={styles.cancelSheetLoadingText}>Cancelling reservation…</Text>
+              </View>
+            ) : null}
+
+            {cancelSheetPhase === 'success' ? (
+              <View style={styles.cancelSheetCenterBlock}>
+                <View style={styles.cancelSheetSuccessIcon}>
+                  <CheckCircle2 size={40} color="#16a34a" strokeWidth={2} />
+                </View>
+                <Text style={styles.cancelSheetSuccessTitle}>Reservation cancelled</Text>
+                <Text style={styles.cancelSheetSuccessBody}>
+                  These slots are no longer held for you. You can book again anytime if the field is available.
+                </Text>
+                <TouchableOpacity
+                  style={[styles.cancelSheetPrimaryBtn, styles.cancelSheetDoneBtn]}
+                  onPress={closeCancelSheet}
+                  activeOpacity={0.88}
+                >
+                  <Text style={styles.cancelSheetPrimaryBtnText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {cancelSheetPhase === 'error' ? (
+              <View style={styles.cancelSheetCenterBlock}>
+                <View style={styles.cancelSheetErrorIcon}>
+                  <AlertCircle size={40} color="#dc2626" strokeWidth={2} />
+                </View>
+                <Text style={styles.cancelSheetErrorTitle}>Could not cancel</Text>
+                <Text style={styles.cancelSheetErrorBody}>{cancelSheetError}</Text>
+                <TouchableOpacity style={styles.cancelSheetPrimaryBtn} onPress={() => void executeCancelBooking()} activeOpacity={0.88}>
+                  <Text style={styles.cancelSheetPrimaryBtnText}>Try again</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelSheetGhostBtn} onPress={closeCancelSheet} activeOpacity={0.88}>
+                  <Text style={styles.cancelSheetGhostBtnText}>Dismiss</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </Animatable.View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -230,13 +412,255 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 240,
   },
-  backBtn: {
+  imageHeroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+  },
+  imageFooterBar: {
     position: 'absolute',
-    top: 16,
-    left: 16,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.14)',
+  },
+  heroFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  cancelHeroCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  cancelHeroCapsuleText: {
+    color: 'rgba(255,255,255,0.96)',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 0.1,
+  },
+  backBtn: {
+    marginTop: 16,
+    marginLeft: 16,
     backgroundColor: 'rgba(255,255,255,0.95)',
     borderRadius: 20,
     padding: 8,
+  },
+  cancelSheetRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  cancelSheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 23, 42, 0.48)',
+  },
+  cancelSheetPanel: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    maxHeight: '88%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 16,
+  },
+  cancelSheetGrabber: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#d4d4d8',
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  cancelSheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  cancelSheetTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#18181b',
+    letterSpacing: -0.35,
+    lineHeight: 26,
+  },
+  cancelSheetBody: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#52525b',
+    lineHeight: 22,
+    marginBottom: 18,
+  },
+  cancelSheetSummary: {
+    backgroundColor: '#fafafa',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#e4e4e7',
+    marginBottom: 20,
+  },
+  cancelSheetSummaryLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#71717a',
+    textTransform: 'uppercase',
+    letterSpacing: 0.45,
+    marginBottom: 4,
+  },
+  cancelSheetSummaryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#18181b',
+    letterSpacing: -0.15,
+    marginBottom: 6,
+  },
+  cancelSheetSummaryMeta: {
+    fontSize: 13,
+    fontWeight: '400',
+    color: '#52525b',
+    lineHeight: 18,
+  },
+  cancelSheetSummaryDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#e4e4e7',
+    marginVertical: 12,
+  },
+  cancelSheetSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  cancelSheetSummaryAmount: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#16a34a',
+    letterSpacing: -0.1,
+  },
+  cancelSheetPrimaryBtn: {
+    alignSelf: 'stretch',
+    width: '100%',
+    backgroundColor: '#16a34a',
+    borderRadius: 14,
+    paddingVertical: 16,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+    shadowColor: '#16a34a',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  cancelSheetDoneBtn: {
+    marginTop: 4,
+    marginBottom: 0,
+    paddingVertical: 17,
+    minHeight: 54,
+  },
+  cancelSheetPrimaryBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  cancelSheetDestructiveBtn: {
+    alignSelf: 'stretch',
+    width: '100%',
+    borderRadius: 14,
+    paddingVertical: 16,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fef2f2',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#fecaca',
+    marginBottom: 4,
+  },
+  cancelSheetDestructiveBtnText: {
+    color: '#b91c1c',
+    fontSize: 16,
+    fontWeight: '600',
+    letterSpacing: 0.05,
+  },
+  cancelSheetCenterBlock: {
+    width: '100%',
+    alignSelf: 'stretch',
+    paddingTop: 8,
+    paddingBottom: 8,
+    alignItems: 'center',
+  },
+  cancelSheetLoadingText: {
+    marginTop: 16,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#52525b',
+  },
+  cancelSheetSuccessIcon: {
+    marginBottom: 14,
+  },
+  cancelSheetSuccessTitle: {
+    fontSize: 19,
+    fontWeight: '600',
+    color: '#18181b',
+    letterSpacing: -0.25,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  cancelSheetSuccessBody: {
+    fontSize: 15,
+    fontWeight: '400',
+    color: '#52525b',
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 22,
+    paddingHorizontal: 4,
+  },
+  cancelSheetErrorIcon: {
+    marginBottom: 14,
+  },
+  cancelSheetErrorTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#18181b',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  cancelSheetErrorBody: {
+    fontSize: 14,
+    fontWeight: '400',
+    color: '#52525b',
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 8,
+  },
+  cancelSheetGhostBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  cancelSheetGhostBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#16a34a',
   },
   content: {
     flex: 1,

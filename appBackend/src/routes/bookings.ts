@@ -177,6 +177,28 @@ function buildBookingPlan(input: any, field: any, opts?: { allowNonApprovedField
   };
 }
 
+/** Slot conflicts use BookingUnit rows; only PENDING/CONFIRMED bookings should hold slots. */
+const ACTIVE_BOOKING_STATUSES = ['PENDING', 'CONFIRMED'] as const;
+
+/**
+ * Remove BookingUnit rows for CANCELLED/COMPLETED bookings that occupy the given slots,
+ * so the unique (fieldId, date, hourStart) constraint can accept a new reservation.
+ */
+async function deleteStaleBookingUnitsForSlots(
+  tx: any,
+  fieldId: string,
+  units: { date: Date; hourStart: number }[],
+) {
+  if (!units.length) return;
+  await tx.bookingUnit.deleteMany({
+    where: {
+      fieldId,
+      booking: { status: { in: ['CANCELLED', 'COMPLETED'] } },
+      OR: units.map((u) => ({ date: u.date, hourStart: u.hourStart })),
+    },
+  });
+}
+
 // POST /bookings - create a booking
 // Body variants:
 // - Hours-based: { fieldId, kind: 'HOURLY'|'CUSTOM', date: 'YYYY-MM-DD', startHour, hours, timezone? }
@@ -228,6 +250,8 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
           note: note || null,
         },
       });
+
+      await deleteStaleBookingUnitsForSlots(tx, fieldId, units);
 
       await tx.bookingUnit.createMany({
         data: units.map((u) => ({
@@ -374,6 +398,7 @@ router.get('/availability', async (req: Request, res: Response) => {
       where: {
         fieldId,
         date: day,
+        booking: { status: { in: [...ACTIVE_BOOKING_STATUSES] } },
         ...(excludeBookingId ? { bookingId: { not: excludeBookingId } } : {}),
       },
       select: { hourStart: true },
@@ -422,6 +447,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
 
     const updated = await (prisma as any).$transaction(async (tx: any) => {
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
+      await deleteStaleBookingUnitsForSlots(tx, existing.fieldId, units);
       await tx.bookingUnit.createMany({
         data: units.map((u) => ({
           bookingId: id,
@@ -523,6 +549,11 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
     });
     if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
 
+    if (String(existing.status || '').toUpperCase() === 'CANCELLED') {
+      await (prisma as any).bookingUnit.deleteMany({ where: { bookingId: id } });
+      return res.json({ ok: true });
+    }
+
     const meta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
     const ep = (meta as any).easypay;
     const businessId = ep?.businessId as string | undefined;
@@ -548,15 +579,92 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
 });
 
 // GET /bookings/owner - list bookings for fields owned by current user
-// ?limit=10&cursor=<id>
+// ?limit=10&cursor=<id>&start=<iso>&end=<iso>&payment=all|paid|unpaid
+// When start+end are provided, response includes `summary` for the same filter scope.
 router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.auth!.userId;
     const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 10));
     const cursor = (req.query.cursor as string | undefined) || undefined;
+    const startParam = (req.query.start as string | undefined)?.trim();
+    const endParam = (req.query.end as string | undefined)?.trim();
+    const paymentRaw = String(req.query.payment || 'all').toLowerCase();
+    const payment = paymentRaw === 'paid' ? 'paid' : paymentRaw === 'unpaid' ? 'unpaid' : 'all';
+
+    const start = startParam ? new Date(startParam) : undefined;
+    const end = endParam ? new Date(endParam) : undefined;
+    const hasRange = Boolean(start && end && !Number.isNaN(+start!) && !Number.isNaN(+end!));
+
+    const timeWhere = hasRange ? { startAt: { gte: start!, lt: end! } } : {};
+    const paymentWhere =
+      payment === 'paid'
+        ? { paymentStatus: 'PAID' as const }
+        : payment === 'unpaid'
+          ? { paymentStatus: { not: 'PAID' as const } }
+          : {};
+
+    const listWhere: any = {
+      field: { userId: ownerId },
+      ...timeWhere,
+      ...paymentWhere,
+    };
+
+    const dec = (v: any) => (v == null ? 0 : Number(v));
+
+    let summary: any = undefined;
+    if (hasRange) {
+      const baseSummaryWhere: any = {
+        field: { userId: ownerId },
+        ...timeWhere,
+        status: { not: 'CANCELLED' as const },
+      };
+      const [paidAgg, unpaidAgg] = await Promise.all([
+        (prisma as any).booking.aggregate({
+          where: { ...baseSummaryWhere, paymentStatus: 'PAID' },
+          _count: { _all: true },
+          _sum: { totalAmount: true },
+        }),
+        (prisma as any).booking.aggregate({
+          where: { ...baseSummaryWhere, paymentStatus: { not: 'PAID' } },
+          _count: { _all: true },
+          _sum: { totalAmount: true },
+        }),
+      ]);
+
+      const paidCount = paidAgg._count._all;
+      const unpaidCount = unpaidAgg._count._all;
+      const collectedGmd = dec(paidAgg._sum.totalAmount);
+      const outstandingGmd = dec(unpaidAgg._sum.totalAmount);
+
+      if (payment === 'paid') {
+        summary = {
+          bookingCount: paidCount,
+          paidCount,
+          unpaidCount: 0,
+          collectedGmd,
+          outstandingGmd: 0,
+        };
+      } else if (payment === 'unpaid') {
+        summary = {
+          bookingCount: unpaidCount,
+          paidCount: 0,
+          unpaidCount,
+          collectedGmd: 0,
+          outstandingGmd,
+        };
+      } else {
+        summary = {
+          bookingCount: paidCount + unpaidCount,
+          paidCount,
+          unpaidCount,
+          collectedGmd,
+          outstandingGmd,
+        };
+      }
+    }
 
     const results = await (prisma as any).booking.findMany({
-      where: { field: { userId: ownerId } },
+      where: listWhere,
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -591,7 +699,7 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
         latestReceiptUrl: latest?.imageUrl || null,
       };
     });
-    res.json({ items: mapped, nextCursor });
+    res.json({ items: mapped, nextCursor, ...(summary ? { summary } : {}) });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch owner bookings' });
   }

@@ -15,7 +15,7 @@ interface MatchCardProps {
     date: string;
     time: string;
     squad: string;
-    status?: 'confirmed' | 'pending';
+    status?: 'confirmed' | 'pending' | 'cancelled' | 'completed';
     participants?: number;
     maxParticipants?: number;
     result?: string;
@@ -24,6 +24,21 @@ interface MatchCardProps {
   };
   type: 'upcoming' | 'past';
   onPrimaryPress?: () => void;
+}
+
+function statusBadgeStyles(status: NonNullable<MatchCardProps['match']['status']>) {
+  switch (status) {
+    case 'confirmed':
+      return { badge: styles.confirmedBadge, text: styles.confirmedText, label: 'Confirmed' };
+    case 'pending':
+      return { badge: styles.pendingBadge, text: styles.pendingText, label: 'Pending' };
+    case 'cancelled':
+      return { badge: styles.cancelledBadge, text: styles.cancelledText, label: 'Cancelled' };
+    case 'completed':
+      return { badge: styles.completedBadge, text: styles.completedText, label: 'Completed' };
+    default:
+      return { badge: styles.pendingBadge, text: styles.pendingText, label: 'Pending' };
+  }
 }
 
 export function MatchCard({ match, type, onPrimaryPress }: MatchCardProps) {
@@ -57,19 +72,14 @@ export function MatchCard({ match, type, onPrimaryPress }: MatchCardProps) {
           </View>
           */}
         </View>
-        {type === 'upcoming' && match.status && (
-          <View style={[
-            styles.statusBadge,
-            match.status === 'confirmed' ? styles.confirmedBadge : styles.pendingBadge
-          ]}>
-            <Text style={[
-              styles.statusText,
-              match.status === 'confirmed' ? styles.confirmedText : styles.pendingText
-            ]}>
-              {match.status === 'confirmed' ? 'Confirmed' : 'Pending'}
-            </Text>
-          </View>
-        )}
+        {match.status ? (() => {
+          const sb = statusBadgeStyles(match.status);
+          return (
+            <View style={[styles.statusBadge, sb.badge]}>
+              <Text style={[styles.statusText, sb.text]}>{sb.label}</Text>
+            </View>
+          );
+        })() : null}
       </View>
 
       {/*
@@ -208,6 +218,18 @@ const styles = StyleSheet.create({
   },
   pendingText: {
     color: '#92400e',
+  },
+  cancelledBadge: {
+    backgroundColor: '#fee2e2',
+  },
+  cancelledText: {
+    color: '#991b1b',
+  },
+  completedBadge: {
+    backgroundColor: '#e0f2fe',
+  },
+  completedText: {
+    color: '#075985',
   },
   participantsContainer: {
     marginBottom: 12,

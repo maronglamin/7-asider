@@ -79,7 +79,14 @@ export function MatchesScreen() {
       const endAt = b.endAt ? new Date(b.endAt) : null;
       const isPast = endAt ? endAt.getTime() < now : (startAt ? startAt.getTime() < now : false);
       const statusUpper = String(b.status || '').toUpperCase();
-      const status = statusUpper === 'CONFIRMED' ? 'confirmed' : 'pending';
+      const displayStatus: 'confirmed' | 'pending' | 'cancelled' | 'completed' =
+        statusUpper === 'CANCELLED'
+          ? 'cancelled'
+          : statusUpper === 'COMPLETED'
+            ? 'completed'
+            : statusUpper === 'CONFIRMED'
+              ? 'confirmed'
+              : 'pending';
       const kindLabel = (() => {
         const t = String(b.type || '').toLowerCase().replace('_', ' ');
         return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
@@ -100,7 +107,7 @@ export function MatchesScreen() {
         date: startAt ? startAt.toISOString() : new Date().toISOString(),
         time: startAt ? startAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '',
         squad: '',
-        status: status as 'confirmed' | 'pending',
+        status: displayStatus,
         kindLabel,
         slotsLabel,
         raw: b,
