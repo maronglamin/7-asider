@@ -36,6 +36,18 @@ function ensureManifestLink() {
   theme.content = '#16a34a';
 }
 
+function registerSwOnce() {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+  navigator.serviceWorker
+    .register('/service-worker.js', { type: 'classic', scope: '/' })
+    .then(() => {
+      if (__DEV__) console.log('[PWA] service worker registered (scope /)');
+    })
+    .catch((error) => {
+      console.warn('[PWA] service worker registration failed', error?.message || error);
+    });
+}
+
 export function registerServiceWorker() {
   if (Platform.OS !== 'web') return;
 
@@ -43,9 +55,10 @@ export function registerServiceWorker() {
 
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
 
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('/service-worker.js')
-      .catch((error) => console.log('[PWA] service worker registration skipped', error));
-  });
+  // Register before `load` so pushManager.subscribe can await navigator.serviceWorker.ready reliably.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', registerSwOnce, { once: true });
+  } else {
+    registerSwOnce();
+  }
 }

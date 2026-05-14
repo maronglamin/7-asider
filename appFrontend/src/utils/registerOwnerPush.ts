@@ -27,8 +27,19 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 async function registerWebPush(authToken: string): Promise<void> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return;
+
+  const host = window.location.hostname;
+  const isLocalhost = host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+  const secure = typeof window.isSecureContext === 'boolean' ? window.isSecureContext : window.location.protocol === 'https:';
+  if (!secure && !isLocalhost) {
+    console.warn(
+      '[push] Web Push requires HTTPS. Open the PWA at https://… (not http://) or notifications will not register.',
+    );
+    return;
+  }
+
   try {
-    await navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+    await navigator.serviceWorker.register('/service-worker.js', { type: 'classic', scope: '/' }).catch(() => {});
     await navigator.serviceWorker.ready;
   } catch {
     return;
@@ -37,10 +48,17 @@ async function registerWebPush(authToken: string): Promise<void> {
   const fromConfig = String((Constants.expoConfig?.extra as any)?.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim();
   let publicKey: string | null = fromConfig || null;
   if (!publicKey) {
-    const res = await apiGet<{ publicKey: string | null }>('/push/vapid-public-key');
-    publicKey = res.publicKey;
+    try {
+      const res = await apiGet<{ publicKey: string | null }>('/push/vapid-public-key');
+      publicKey = res.publicKey;
+    } catch (e) {
+      console.warn('[push] could not load VAPID public key from API', (e as Error)?.message || e);
+    }
   }
   if (!publicKey) {
+    console.warn(
+      '[push] No VAPID public key (set WEB_PUSH_VAPID_PUBLIC_KEY at web build time and WEB_PUSH_VAPID_* on the server). Falling back to Expo token on web.',
+    );
     await tryExpoTokenOnWeb(authToken);
     return;
   }
@@ -48,14 +66,18 @@ async function registerWebPush(authToken: string): Promise<void> {
   try {
     const reg = await navigator.serviceWorker.ready;
     const perm = typeof Notification !== 'undefined' ? await Notification.requestPermission() : 'denied';
-    if (perm !== 'granted') return;
+    if (perm !== 'granted') {
+      console.warn('[push] Notification permission not granted:', perm);
+      return;
+    }
+    const key = urlBase64ToUint8Array(publicKey);
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
+      applicationServerKey: key.buffer.slice(key.byteOffset, key.byteOffset + key.byteLength) as ArrayBuffer,
     });
     await apiPostAuth('/push/register', { channel: 'web_push', token: JSON.stringify(sub.toJSON()) }, authToken);
   } catch (e) {
-    console.log('[push] web_push register failed', e);
+    console.warn('[push] web_push subscribe/register failed', (e as Error)?.message || e);
     await tryExpoTokenOnWeb(authToken);
   }
 }
