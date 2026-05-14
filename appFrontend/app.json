@@ -32,7 +32,7 @@
         "backgroundColor": "#16a34a"
       },
       "package": "com.sevenaside.app",
-      "versionCode": 32,
+      "versionCode": 33,
       "blockedPermissions": [
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
@@ -59,7 +59,7 @@
       },
       "API_BASE": "https://seven-aside.phantommetrics.gm",
       "APP_VERSION": "1.0.2",
-      "APP_BUILD": "31"
+      "APP_BUILD": "33"
     },
     "owner": "phantom-metrics"
   }

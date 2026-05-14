@@ -10,7 +10,7 @@ def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 def readExpoForUpdates = {
     def f = file("$projectRoot/app.json")
     if (!f.exists()) {
-        return [appVersion: "1.0.0", runtimeVersion: "1.0.0", updateUrl: "", easProjectId: "", enabled: false]
+        return [appVersion: "1.0.2", runtimeVersion: "1.0.2", updateUrl: "", easProjectId: "", enabled: false]
     }
     def root = new JsonSlurper().parse(f)
     def expo = root.expo ?: [:]
@@ -19,7 +19,7 @@ def readExpoForUpdates = {
     if (!url && id) {
         url = "https://u.expo.dev/${id}"
     }
-    def ver = expo.version?.toString() ?: "1.0.0"
+    def ver = expo.version?.toString() ?: "1.0.2"
     def rawRv = expo.runtimeVersion
     def runtimeVer = (rawRv instanceof String && rawRv.toString().trim())
         ? rawRv.toString().trim()
@@ -146,7 +146,7 @@ android {
         applicationId 'com.sevenaside.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 32
+        versionCode 33  
         versionName expoUpdates.appVersion
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
