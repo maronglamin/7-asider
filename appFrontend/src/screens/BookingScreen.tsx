@@ -12,9 +12,9 @@ import {
   Modal,
   useWindowDimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, Calendar, Clock, Minus, Plus } from 'lucide-react-native';
+import { ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Minus, Plus } from 'lucide-react-native';
 import { apiGet, apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 import { useAuth } from '../context/AuthContext';
@@ -40,6 +40,43 @@ const addDaysToKey = (dateKey: string, days: number) => {
   const next = new Date(`${dateKey}T00:00:00.000Z`);
   next.setUTCDate(next.getUTCDate() + days);
   return toDateKey(next);
+};
+
+type DurationPreset = '1h' | '2h' | '3h' | 'halfDay' | 'day' | '2d' | '3d' | 'week' | 'custom';
+
+/** Human-readable booking length label from preset (for reschedule UI). */
+const presetDurationLabel = (p: DurationPreset): string => {
+  switch (p) {
+    case '1h':
+      return '1 hour';
+    case '2h':
+      return '2 hours';
+    case '3h':
+      return '3 hours';
+    case 'halfDay':
+      return '12 hours (half day)';
+    case 'day':
+      return 'Full day (24 hours)';
+    case '2d':
+      return '2 days';
+    case '3d':
+      return '3 days';
+    case 'week':
+      return '7 days';
+    case 'custom':
+      return 'Custom length';
+    default:
+      return 'Booking';
+  }
+};
+
+const formatSelectedHourRange = (selectedTimes: string[]): string => {
+  if (!selectedTimes.length) return '';
+  const first = selectedTimes[0] || '';
+  const last = selectedTimes[selectedTimes.length - 1] || '';
+  const start = first.slice(0, 5);
+  const endPart = last.includes(' - ') ? last.split(' - ')[1] : last.slice(-5);
+  return `${start} – ${endPart}`;
 };
 
 const buildInitialSelection = (booking: any) => {
@@ -84,6 +121,7 @@ const buildInitialSelection = (booking: any) => {
 
 export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const contentWidth = Platform.OS === 'web' ? Math.min(windowWidth, 1180) : windowWidth;
   const { token } = useAuth();
   const fieldId = route?.params?.fieldId as string | undefined;
@@ -98,6 +136,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [preset, setPreset] = useState<'1h' | '2h' | '3h' | 'halfDay' | 'day' | '2d' | '3d' | 'week' | 'custom'>('1h');
   const [customHours, setCustomHours] = useState<number>(1);
   const [showTimeSheet, setShowTimeSheet] = useState<boolean>(false);
+  const [rescheduleDurationExpanded, setRescheduleDurationExpanded] = useState(false);
   const [bookedHours, setBookedHours] = useState<number[]>([]);
   const [conflictMsg, setConflictMsg] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(true);
@@ -111,6 +150,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
 
   useEffect(() => {
     didPrefillRef.current = false;
+    setRescheduleDurationExpanded(false);
   }, [existingBookingId]);
 
   useEffect(() => {
@@ -375,84 +415,138 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     return Number.isFinite(num) ? num : null;
   }, [field]);
 
-  const halfDayHours = 12;
-  const fullDayHours = 24;
-
-  const calculateTotal = () => {
-    if (!pricePerHour) return 'GMD 0/total';
-    let hours = 0;
-    if (preset === '1h') hours = selectedTimes.length || 1;
-    else if (preset === '2h') hours = 2;
-    else if (preset === '3h') hours = 3;
-    else if (preset === 'halfDay') hours = halfDayHours;
-    else if (preset === 'custom') hours = Math.max(1, Math.min(24, customHours));
-    else if (preset === 'day') hours = fullDayHours;
-    else if (preset === '2d') hours = selectedDates.length * fullDayHours;
-    else if (preset === '3d') hours = selectedDates.length * fullDayHours;
-    else if (preset === 'week') hours = selectedDates.length * fullDayHours;
-    return `GMD ${pricePerHour * hours}/total`;
-  };
-
   const isHoursBased = preset === '1h' || preset === '2h' || preset === '3h' || preset === 'halfDay' || preset === 'custom';
   const isFullDay = preset === 'day';
   const isMultiDay = preset === '2d' || preset === '3d' || preset === 'week';
   const maxDays = preset === '2d' ? 2 : preset === '3d' ? 3 : preset === 'week' ? 7 : 1;
+  const showBookingSummary =
+    (isHoursBased && !!selectedDate && selectedTimes.length > 0)
+    || (isFullDay && !!selectedDate)
+    || (isMultiDay && selectedDates.length > 0);
+  /** Space so the docked summary bar does not cover date/time controls (notably when reschedule prefills selection). */
+  const scrollBottomPadding = showBookingSummary ? 88 + insets.bottom : 28;
+
+  const priorBookingLine = useMemo(() => {
+    if (!isReschedule || !rescheduleBooking?.startAt) return '';
+    const start = new Date(rescheduleBooking.startAt);
+    const end = rescheduleBooking?.endAt ? new Date(rescheduleBooking.endAt) : null;
+    const type = String(rescheduleBooking?.type || 'HOURLY').toUpperCase();
+    if (type === 'FULL_DAY') {
+      return `Was: full day · ${start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+    if (type === 'MULTI_DAY' && end) {
+      const days = Math.max(1, Math.round((+end - +start) / (24 * 3600000)));
+      return `Was: ${days} day${days > 1 ? 's' : ''} · from ${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    }
+    if (end) {
+      return `Was: ${start.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} – ${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    }
+    return `Was: ${start.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+  }, [isReschedule, rescheduleBooking]);
+
+  const durationChipOptions = useMemo(
+    () =>
+      [
+        { k: '1h' as const, t: '1h' },
+        { k: '2h' as const, t: '2h' },
+        { k: '3h' as const, t: '3h' },
+        { k: 'halfDay' as const, t: 'Half-day' },
+        { k: 'day' as const, t: 'Day' },
+        { k: '2d' as const, t: '2 days' },
+        { k: '3d' as const, t: '3 days' },
+        { k: 'week' as const, t: 'Week' },
+        { k: 'custom' as const, t: 'Custom' },
+      ] as { k: typeof preset; t: string }[],
+    [],
+  );
+
+  const sheetDateLabel = selectedDate
+    ? new Date(`${selectedDate}T12:00:00.000Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : '';
 
   return (
     <View style={styles.container}>
       <StatusBar style="light" />
       <SafeAreaView edges={["top"]} style={styles.topSafe} />
-      {/* Header with Back Button */}
-      <View style={styles.imageContainer}>
-        {Array.isArray(field?.images) && field.images.length > 1 ? (
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            style={styles.slider}
-            onMomentumScrollEnd={(e) => {
-              const idx = Math.round(e.nativeEvent.contentOffset.x / contentWidth);
-              setImageIndex(idx);
-            }}
+      {isReschedule ? (
+        <View style={styles.rescheduleHeaderBar}>
+          <TouchableOpacity
+            style={styles.rescheduleBackBtn}
+            onPress={() => navigation?.goBack()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
           >
-            {field.images.map((img: any, idx: number) => (
-              <Image
-                key={img.id || `img-${idx}`}
-                source={{ uri: resolveMediaUrl(img.url) || undefined }}
-                style={[styles.fieldImage, { width: contentWidth }]}
-              />
-            ))}
-          </ScrollView>
-        ) : (
-          <Image
-            source={{ uri: resolveMediaUrl(field?.images?.[0]?.url) || 'https://via.placeholder.com/800x400?text=Field' }}
-            style={[styles.fieldImage, { width: contentWidth }]}
-          />
-        )}
-        {Array.isArray(field?.images) && field.images.length > 1 && (
-          <View style={styles.dotsContainer}>
-            {field.images.map((_: any, i: number) => (
-              <View key={i} style={[styles.dot, i === imageIndex ? styles.dotActive : undefined]} />
-            ))}
-          </View>
-        )}
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation?.goBack()}
-        >
-          <ArrowLeft size={24} color="#111827" />
-        </TouchableOpacity>
-      </View>
+            <ArrowLeft size={22} color="#111827" />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.imageContainer}>
+          {Array.isArray(field?.images) && field.images.length > 1 ? (
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              style={styles.slider}
+              onMomentumScrollEnd={(e) => {
+                const idx = Math.round(e.nativeEvent.contentOffset.x / contentWidth);
+                setImageIndex(idx);
+              }}
+            >
+              {field.images.map((img: any, idx: number) => (
+                <Image
+                  key={img.id || `img-${idx}`}
+                  source={{ uri: resolveMediaUrl(img.url) || undefined }}
+                  style={[styles.fieldImage, { width: contentWidth, height: 256 }]}
+                />
+              ))}
+            </ScrollView>
+          ) : (
+            <Image
+              source={{ uri: resolveMediaUrl(field?.images?.[0]?.url) || 'https://via.placeholder.com/800x400?text=Field' }}
+              style={[styles.fieldImage, { width: contentWidth, height: 256 }]}
+            />
+          )}
+          {Array.isArray(field?.images) && field.images.length > 1 && (
+            <View style={styles.dotsContainer}>
+              {field.images.map((_: any, i: number) => (
+                <View key={i} style={[styles.dot, i === imageIndex ? styles.dotActive : undefined]} />
+              ))}
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation?.goBack()}
+          >
+            <ArrowLeft size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Field Info */}
-      <View style={styles.fieldInfo}>
-        <Text style={styles.fieldName}>{field?.name || 'Field'}</Text>
-        <View style={styles.fieldDetails}>
-          <Text style={styles.fieldDistance}>{field?.city || field?.address || ''}</Text>
-          <Text style={styles.fieldPrice}>{pricePerHour != null ? `GMD ${pricePerHour}/hour` : '—'}</Text>
-        </View>
-        {isReschedule && (
-          <Text style={styles.rescheduleNote}>Choose a new available date and confirm to update this booking.</Text>
+      <View style={[styles.fieldInfo, isReschedule && styles.fieldInfoReschedule]}>
+        {isReschedule ? (
+          <>
+            <View style={styles.rescheduleTitleRow}>
+              <View style={styles.rescheduleBadge}>
+                <Text style={styles.rescheduleBadgeText}>Reschedule</Text>
+              </View>
+            </View>
+            <Text style={styles.fieldName}>{field?.name || 'Field'}</Text>
+            <Text style={styles.rescheduleLead}>Choose a new date{isHoursBased ? ' and start time' : ''}. Everything else stays the same until you confirm.</Text>
+            {!!priorBookingLine && <Text style={styles.priorBookingLine}>{priorBookingLine}</Text>}
+            <View style={styles.fieldDetails}>
+              <Text style={styles.fieldDistance}>{field?.city || field?.address || ''}</Text>
+              <Text style={styles.fieldPrice}>{pricePerHour != null ? `GMD ${pricePerHour}/hour` : '—'}</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <Text style={styles.fieldName}>{field?.name || 'Field'}</Text>
+            <View style={styles.fieldDetails}>
+              <Text style={styles.fieldDistance}>{field?.city || field?.address || ''}</Text>
+              <Text style={styles.fieldPrice}>{pricePerHour != null ? `GMD ${pricePerHour}/hour` : '—'}</Text>
+            </View>
+          </>
         )}
       </View>
 
@@ -464,61 +558,114 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
 
       <ScrollView
         style={styles.content}
+        contentContainerStyle={{ paddingBottom: scrollBottomPadding }}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {/* Presets */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Clock size={20} color="#16a34a" />
-            <Text style={styles.sectionTitle}>Duration</Text>
-          </View>
-          <View style={styles.chipsRow}>
-            {([
-              { k: '1h', t: '1h' },
-              { k: '2h', t: '2h' },
-              { k: '3h', t: '3h' },
-              { k: 'halfDay', t: 'Half-day' },
-              { k: 'day', t: 'Day' },
-              { k: '2d', t: '2 days' },
-              { k: '3d', t: '3 days' },
-              { k: 'week', t: 'Week' },
-              { k: 'custom', t: 'Custom' },
-            ] as { k: typeof preset; t: string }[]).map((c) => (
-              <TouchableOpacity
-                key={c.k}
-                onPress={() => {
-                  setPreset(c.k);
-                  setSelectedTimes([]);
-                  setEndDate('');
-                }}
-                style={[styles.chip, preset === c.k && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, preset === c.k && styles.chipTextActive]}>{c.t}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          {preset === 'custom' && (
-            <View style={styles.customRow}>
-              <Text style={styles.customLabel}>Hours</Text>
-              <View style={styles.counter}>
-                <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.max(1, customHours - 1))}>
-                  <Minus size={18} color="#111827" />
-                </TouchableOpacity>
-                <Text style={styles.counterValue}>{customHours}</Text>
-                <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.min(24, customHours + 1))}>
-                  <Plus size={18} color="#111827" />
-                </TouchableOpacity>
-              </View>
+        {/* Duration */}
+        {isReschedule ? (
+          <View style={[styles.section, styles.sectionReschedule]}>
+            <View style={styles.sectionHeader}>
+              <Clock size={20} color="#16a34a" />
+              <Text style={styles.sectionTitle}>Length</Text>
             </View>
-          )}
-        </View>
-        {/* Date Selection */}
-        <View style={styles.section}>
+            <View style={styles.rescheduleLengthCard}>
+              <Text style={styles.rescheduleLengthMain}>
+                {preset === 'custom' ? `${customHours} hour${customHours !== 1 ? 's' : ''}` : presetDurationLabel(preset)}
+              </Text>
+              <Text style={styles.rescheduleLengthHint}>Matches this booking. Expand only if you need a different length.</Text>
+              <TouchableOpacity
+                style={styles.rescheduleLengthToggle}
+                onPress={() => setRescheduleDurationExpanded((v) => !v)}
+                accessibilityRole="button"
+                accessibilityLabel={rescheduleDurationExpanded ? 'Hide length options' : 'Show length options'}
+              >
+                {rescheduleDurationExpanded ? <ChevronUp size={18} color="#166534" /> : <ChevronDown size={18} color="#166534" />}
+                <Text style={styles.rescheduleLengthToggleText}>{rescheduleDurationExpanded ? 'Hide options' : 'Change length'}</Text>
+              </TouchableOpacity>
+            </View>
+            {rescheduleDurationExpanded && (
+              <>
+                <View style={styles.chipsRow}>
+                  {durationChipOptions.map((c) => (
+                    <TouchableOpacity
+                      key={c.k}
+                      onPress={() => {
+                        setPreset(c.k);
+                        setSelectedTimes([]);
+                        setEndDate('');
+                      }}
+                      style={[styles.chip, preset === c.k && styles.chipActive]}
+                    >
+                      <Text style={[styles.chipText, preset === c.k && styles.chipTextActive]}>{c.t}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {preset === 'custom' && (
+                  <View style={styles.customRow}>
+                    <Text style={styles.customLabel}>Hours</Text>
+                    <View style={styles.counter}>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.max(1, customHours - 1))}>
+                        <Minus size={18} color="#111827" />
+                      </TouchableOpacity>
+                      <Text style={styles.counterValue}>{customHours}</Text>
+                      <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.min(24, customHours + 1))}>
+                        <Plus size={18} color="#111827" />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        ) : (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Clock size={20} color="#16a34a" />
+              <Text style={styles.sectionTitle}>Duration</Text>
+            </View>
+            <View style={styles.chipsRow}>
+              {durationChipOptions.map((c) => (
+                <TouchableOpacity
+                  key={c.k}
+                  onPress={() => {
+                    setPreset(c.k);
+                    setSelectedTimes([]);
+                    setEndDate('');
+                  }}
+                  style={[styles.chip, preset === c.k && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, preset === c.k && styles.chipTextActive]}>{c.t}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {preset === 'custom' && (
+              <View style={styles.customRow}>
+                <Text style={styles.customLabel}>Hours</Text>
+                <View style={styles.counter}>
+                  <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.max(1, customHours - 1))}>
+                    <Minus size={18} color="#111827" />
+                  </TouchableOpacity>
+                  <Text style={styles.counterValue}>{customHours}</Text>
+                  <TouchableOpacity style={styles.counterBtn} onPress={() => setCustomHours(Math.min(24, customHours + 1))}>
+                    <Plus size={18} color="#111827" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </View>
+        )}
+        {/* Date (+ start time when rescheduling an hourly booking) */}
+        <View style={[styles.section, isReschedule && isHoursBased && styles.sectionRescheduleWhen]}>
           <View style={styles.sectionHeader}>
             <Calendar size={20} color="#16a34a" />
-            <Text style={styles.sectionTitle}>{isMultiDay ? 'Select Days' : 'Select Date'}</Text>
+            <Text style={styles.sectionTitle}>
+              {isReschedule && isHoursBased ? 'New date & start time' : isMultiDay ? 'Select Days' : 'Select Date'}
+            </Text>
           </View>
+          {isReschedule && isHoursBased && (
+            <Text style={styles.rescheduleStepHint}>Pick a free day, then choose when your block should begin.</Text>
+          )}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.datesContainer}>
             {dates.map((date) => {
               const isSelected = isMultiDay
@@ -552,11 +699,37 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
               );
             })}
           </ScrollView>
-          <Text style={styles.helpNote}>Weekends and holidays may have special pricing and availability.</Text>
+          {!isReschedule && <Text style={styles.helpNote}>Weekends and holidays may have special pricing and availability.</Text>}
+
+          {isReschedule && isHoursBased && (
+            <>
+              {!!conflictMsg && <Text style={[styles.conflictText, styles.conflictTextReschedule]}>{conflictMsg}</Text>}
+              <Text style={[styles.timeStepLabel, !selectedDate && styles.timeStepLabelMuted]}>Start time</Text>
+              {!selectedDate ? (
+                <View style={styles.noDateWrapReschedule}>
+                  <Text style={styles.noDateText}>Select a date above to see available times.</Text>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.timeOpenCard} onPress={() => setShowTimeSheet(true)} activeOpacity={0.85}>
+                  <View style={styles.timeOpenCardTextWrap}>
+                    <Text style={styles.timeOpenCardTitle}>
+                      {selectedTimes.length ? formatSelectedHourRange(selectedTimes) : 'Choose start time'}
+                    </Text>
+                    <Text style={styles.timeOpenCardSub}>
+                      {selectedTimes.length
+                        ? `${getNeededHours()} hour${getNeededHours() !== 1 ? 's' : ''} on ${sheetDateLabel}`
+                        : `${getNeededHours()} consecutive hour${getNeededHours() !== 1 ? 's' : ''} from one start slot`}
+                    </Text>
+                  </View>
+                  <Clock size={22} color="#16a34a" />
+                </TouchableOpacity>
+              )}
+            </>
+          )}
         </View>
 
-        {/* Time Selection trigger (hours-based) */}
-        {isHoursBased && (
+        {/* Time Selection — new bookings only (hourly reschedule uses combined section above) */}
+        {isHoursBased && !isReschedule && (
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Clock size={20} color="#16a34a" />
@@ -571,49 +744,19 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
               </View>
             ) : (
               <TouchableOpacity style={styles.timeOpenButton} onPress={() => setShowTimeSheet(true)}>
-                <Text style={styles.timeOpenText}>{selectedTimes.length ? `${selectedTimes.length} slots selected` : 'Choose Time Slots'}</Text>
+                <Text style={styles.timeOpenText}>
+                  {selectedTimes.length ? `${selectedTimes.length} slot${selectedTimes.length > 1 ? 's' : ''} selected` : 'Choose Time Slots'}
+                </Text>
               </TouchableOpacity>
             )}
           </View>
         )}
       </ScrollView>
 
-      {/* Booking Summary & Confirm Button */}
-      {(isHoursBased && selectedDate && selectedTimes.length > 0) || (isFullDay && selectedDate) || (isMultiDay && selectedDates.length > 0) ? (
-        <View style={styles.bookingSummary}>
-          <View style={styles.summaryContainer}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Date{isMultiDay ? 's' : ''}:</Text>
-              <Text style={styles.summaryValue}>
-                {isMultiDay
-                  ? selectedDates.map((d) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).join(', ')
-                  : new Date(selectedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-              </Text>
-            </View>
-            {isHoursBased && (
-              <View style={styles.summaryItem}>
-                <Text style={styles.summaryLabel}>Selected Times:</Text>
-                <Text style={styles.summaryValue}>
-                  {selectedTimes.length} slot{selectedTimes.length > 1 ? 's' : ''}
-                </Text>
-              </View>
-            )}
-            {isHoursBased && (
-              <View style={styles.selectedTimesContainer}>
-                {selectedTimes.map((time) => (
-                  <View key={time} style={styles.selectedTimeChip}>
-                    <Text style={styles.selectedTimeText}>{time}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-            <View style={styles.totalContainer}>
-              <Text style={styles.totalLabel}>Total:</Text>
-              <Text style={styles.totalValue}>{calculateTotal()}</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.confirmButton} onPress={handleBooking}>
-            <Text style={styles.confirmButtonText}>{isReschedule ? 'Confirm Reschedule' : 'Confirm Booking'}</Text>
+      {showBookingSummary ? (
+        <View style={[styles.confirmDock, { paddingBottom: Math.max(16, 12 + insets.bottom) }]}>
+          <TouchableOpacity style={styles.confirmButton} onPress={handleBooking} activeOpacity={0.9}>
+            <Text style={styles.confirmButtonText}>{isReschedule ? 'Confirm reschedule' : 'Confirm booking'}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -625,7 +768,14 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
           <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setShowTimeSheet(false)} />
           <View style={styles.sheetContainer}>
             <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Select Time Slots</Text>
+            <Text style={styles.sheetTitle}>{isReschedule ? 'Choose start time' : 'Select Time Slots'}</Text>
+            <Text style={styles.sheetSubtitle}>
+              {sheetDateLabel
+                ? isReschedule
+                  ? `${sheetDateLabel} — tap where your ${getNeededHours()}h booking should start`
+                  : `${sheetDateLabel} — choose your start time`
+                : 'Choose your start time'}
+            </Text>
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               <View style={styles.timeSlotsContainer}>
                 {timeSlots.map((time) => {
@@ -682,6 +832,20 @@ const styles = StyleSheet.create({
   imageContainer: {
     position: 'relative',
   },
+  rescheduleHeaderBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  rescheduleBackBtn: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+  },
   fieldImage: {
     height: 256,
     resizeMode: 'cover',
@@ -729,6 +893,39 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
     backgroundColor: '#ffffff',
   },
+  fieldInfoReschedule: {
+    paddingBottom: 20,
+  },
+  rescheduleTitleRow: {
+    marginBottom: 10,
+  },
+  rescheduleBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#ecfdf5',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  rescheduleBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534',
+    letterSpacing: 0.3,
+  },
+  rescheduleLead: {
+    fontSize: 15,
+    color: '#374151',
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  priorBookingLine: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 14,
+    lineHeight: 18,
+  },
   fieldName: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -749,11 +946,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#16a34a',
   },
-  rescheduleNote: {
-    marginTop: 10,
-    fontSize: 13,
-    color: '#166534',
-  },
   content: {
     flex: 1,
     backgroundColor: '#ffffff',
@@ -762,6 +954,96 @@ const styles = StyleSheet.create({
     padding: 24,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+  },
+  sectionReschedule: {
+    paddingBottom: 18,
+    backgroundColor: '#fafafa',
+  },
+  sectionRescheduleWhen: {
+    backgroundColor: '#ffffff',
+  },
+  rescheduleLengthCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 16,
+  },
+  rescheduleLengthMain: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  rescheduleLengthHint: {
+    fontSize: 13,
+    color: '#6b7280',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  rescheduleLengthToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+  },
+  rescheduleLengthToggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#166534',
+  },
+  rescheduleStepHint: {
+    fontSize: 14,
+    color: '#4b5563',
+    lineHeight: 20,
+    marginBottom: 14,
+    marginTop: -4,
+  },
+  timeStepLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#111827',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  timeStepLabelMuted: {
+    color: '#9ca3af',
+  },
+  noDateWrapReschedule: {
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  timeOpenCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  timeOpenCardTextWrap: {
+    flex: 1,
+  },
+  timeOpenCardTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#14532d',
+    marginBottom: 4,
+  },
+  timeOpenCardSub: {
+    fontSize: 13,
+    color: '#166534',
+    lineHeight: 18,
+  },
+  conflictTextReschedule: {
+    marginTop: 4,
+    marginBottom: 4,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -923,77 +1205,25 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginBottom: 12,
   },
-  bookingSummary: {
+  confirmDock: {
     backgroundColor: '#ffffff',
     borderTopWidth: 1,
     borderTopColor: '#e5e7eb',
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingTop: 12,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: -2,
     },
-    shadowOpacity: 0.1,
-    shadowRadius: 3,
-    elevation: 5,
-  },
-  summaryContainer: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 8,
-    padding: 16,
-    marginBottom: 16,
-  },
-  summaryItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#111827',
-  },
-  selectedTimesContainer: {
-    marginBottom: 12,
-    maxHeight: 80,
-  },
-  selectedTimeChip: {
-    backgroundColor: '#dcfce7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 8,
-    marginBottom: 8,
-    alignSelf: 'flex-start',
-  },
-  selectedTimeText: {
-    fontSize: 12,
-    color: '#166534',
-    fontWeight: '500',
-  },
-  totalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-  },
-  totalLabel: {
-    fontSize: 16,
-    color: '#6b7280',
-  },
-  totalValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#16a34a',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 4,
   },
   confirmButton: {
     backgroundColor: '#16a34a',
-    paddingVertical: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     borderRadius: 8,
     alignItems: 'center',
     shadowColor: '#000',
@@ -1053,7 +1283,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
     alignSelf: 'center',
-    marginBottom: 8,
+    marginBottom: 4,
+  },
+  sheetSubtitle: {
+    fontSize: 13,
+    color: '#6b7280',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    lineHeight: 18,
   },
   sheetScroll: {
     paddingHorizontal: 16,
