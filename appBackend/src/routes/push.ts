@@ -2,13 +2,13 @@ import { Router, Response } from 'express';
 import { Expo } from 'expo-server-sdk';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
-import { getWebPushPublicKey } from '../services/pushNotifications';
+import { getVapidPublicKeyForClient } from '../services/pushNotifications';
 
 const router = Router();
 
 // Public: browser needs VAPID public key before PushManager.subscribe (PWA / web).
 router.get('/vapid-public-key', (_req, res: Response) => {
-  const publicKey = getWebPushPublicKey();
+  const publicKey = getVapidPublicKeyForClient();
   res.json({ publicKey: publicKey || null });
 });
 

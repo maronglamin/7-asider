@@ -16,14 +16,22 @@ if (WEB_PUSH_PUBLIC && WEB_PUSH_PRIVATE) {
   } catch (e) {
     console.warn('[push] web-push VAPID init failed', e);
   }
+} else if (WEB_PUSH_PUBLIC && !WEB_PUSH_PRIVATE) {
+  console.warn(
+    '[push] WEB_PUSH_VAPID_PUBLIC_KEY is set but WEB_PUSH_VAPID_PRIVATE_KEY is missing. Browsers can subscribe, but web push cannot be sent until the private key is configured on this server.',
+  );
+} else if (!WEB_PUSH_PUBLIC && WEB_PUSH_PRIVATE) {
+  console.warn('[push] WEB_PUSH_VAPID_PRIVATE_KEY is set but WEB_PUSH_VAPID_PUBLIC_KEY is missing — web push is disabled.');
 }
 
 export function isWebPushConfigured(): boolean {
   return webPushConfigured;
 }
 
-export function getWebPushPublicKey(): string | null {
-  return webPushConfigured ? WEB_PUSH_PUBLIC : null;
+/** Public key for PushManager.subscribe (browser / PWA). Does not require the private key to be present. */
+export function getVapidPublicKeyForClient(): string | null {
+  const k = String(WEB_PUSH_PUBLIC || '').trim();
+  return k.length ? k : null;
 }
 
 type OwnerPushData = { type: string; bookingId: string };
@@ -37,6 +45,7 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
   const expoMessages: ExpoPushMessage[] = [];
   const webSubs: { id: string; subscription: { endpoint: string; keys: { p256dh: string; auth: string } } }[] = [];
 
+  let webPushDevicesSkipped = 0;
   for (const d of devices) {
     if (d.channel === 'EXPO' && Expo.isExpoPushToken(d.token)) {
       expoMessages.push({
@@ -46,7 +55,11 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
         body,
         data,
       });
-    } else if (d.channel === 'WEB_PUSH' && webPushConfigured) {
+    } else if (d.channel === 'WEB_PUSH') {
+      if (!webPushConfigured) {
+        webPushDevicesSkipped += 1;
+        continue;
+      }
       try {
         const parsed = JSON.parse(d.token) as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
         if (parsed?.endpoint && parsed?.keys?.p256dh && parsed?.keys?.auth) {
@@ -62,6 +75,12 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
         /* skip malformed */
       }
     }
+  }
+
+  if (webPushDevicesSkipped > 0) {
+    console.warn(
+      `[push] skipped ${webPushDevicesSkipped} web_push device(s) for user ${ownerUserId}: set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY (and WEB_PUSH_SUBJECT) so web-push can send.`,
+    );
   }
 
   if (expoMessages.length) {
