@@ -34,14 +34,29 @@ export function getVapidPublicKeyForClient(): string | null {
   return k.length ? k : null;
 }
 
-type OwnerPushData = { type: string; bookingId: string };
+export type BookingPushOpenAs = 'owner' | 'customer';
 
-async function sendPushToFieldOwner(ownerUserId: string, title: string, body: string, data: OwnerPushData) {
+export type BookingPushData = {
+  type: string;
+  bookingId: string;
+  openAs: BookingPushOpenAs;
+};
+
+function pushDataForTransport(data: BookingPushData): Record<string, string> {
+  return {
+    type: String(data.type),
+    bookingId: String(data.bookingId),
+    openAs: data.openAs === 'customer' ? 'customer' : 'owner',
+  };
+}
+
+async function sendPushToUser(userId: string, title: string, body: string, data: BookingPushData) {
   const devices = await prisma.pushDevice.findMany({
-    where: { userId: ownerUserId },
+    where: { userId },
     select: { id: true, channel: true, token: true },
   });
 
+  const transport = pushDataForTransport(data);
   const expoMessages: ExpoPushMessage[] = [];
   const webSubs: { id: string; subscription: { endpoint: string; keys: { p256dh: string; auth: string } } }[] = [];
 
@@ -53,7 +68,7 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
         sound: 'default',
         title,
         body,
-        data,
+        data: transport,
       });
     } else if (d.channel === 'WEB_PUSH') {
       if (!webPushConfigured) {
@@ -79,7 +94,7 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
 
   if (webPushDevicesSkipped > 0) {
     console.warn(
-      `[push] skipped ${webPushDevicesSkipped} web_push device(s) for user ${ownerUserId}: set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY (and WEB_PUSH_SUBJECT) so web-push can send.`,
+      `[push] skipped ${webPushDevicesSkipped} web_push device(s) for user ${userId}: set WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY (and WEB_PUSH_SUBJECT) so web-push can send.`,
     );
   }
 
@@ -103,7 +118,7 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
     const payload = JSON.stringify({
       title,
       body,
-      data: { type: String(data.type), bookingId: String(data.bookingId) },
+      data: transport,
     });
     await Promise.allSettled(
       webSubs.map(async ({ id, subscription }) => {
@@ -122,29 +137,105 @@ async function sendPushToFieldOwner(ownerUserId: string, title: string, body: st
   }
 }
 
-export type FieldOwnerBookingPushParams = {
-  ownerUserId: string;
+/** Field owner + booker (actor), deduped when they are the same user. */
+export async function notifyNewBookingPushes(params: {
+  fieldOwnerUserId: string | null | undefined;
+  bookerUserId: string;
   fieldName: string;
   bookingId: string;
   bookerLabel: string;
-};
+}): Promise<void> {
+  const { fieldOwnerUserId, bookerUserId, fieldName, bookingId, bookerLabel } = params;
+  const field = fieldName || 'Field';
+  const ownerId = fieldOwnerUserId || null;
 
-export async function notifyFieldOwnerNewBooking(params: FieldOwnerBookingPushParams): Promise<void> {
-  const { ownerUserId, fieldName, bookingId, bookerLabel } = params;
-  await sendPushToFieldOwner(
-    ownerUserId,
-    'New booking',
-    `${bookerLabel} booked "${fieldName}".`,
-    { type: 'NEW_BOOKING', bookingId: String(bookingId) },
-  );
+  if (ownerId && ownerId === bookerUserId) {
+    await sendPushToUser(bookerUserId, 'Booking confirmed', `You're booked at "${field}".`, {
+      type: 'NEW_BOOKING',
+      bookingId: String(bookingId),
+      openAs: 'customer',
+    });
+    return;
+  }
+
+  if (ownerId) {
+    await sendPushToUser(ownerId, 'New booking', `${bookerLabel} booked "${field}".`, {
+      type: 'NEW_BOOKING',
+      bookingId: String(bookingId),
+      openAs: 'owner',
+    });
+  }
+  await sendPushToUser(bookerUserId, 'Booking confirmed', `You booked "${field}".`, {
+    type: 'NEW_BOOKING',
+    bookingId: String(bookingId),
+    openAs: 'customer',
+  });
 }
 
-export async function notifyFieldOwnerBookingRescheduled(params: FieldOwnerBookingPushParams): Promise<void> {
-  const { ownerUserId, fieldName, bookingId, bookerLabel } = params;
-  await sendPushToFieldOwner(
-    ownerUserId,
-    'Booking rescheduled',
-    `${bookerLabel} rescheduled a booking at "${fieldName}".`,
-    { type: 'BOOKING_RESCHEDULED', bookingId: String(bookingId) },
-  );
+export async function notifyReschedulePushes(params: {
+  fieldOwnerUserId: string | null | undefined;
+  bookerUserId: string;
+  fieldName: string;
+  bookingId: string;
+  bookerLabel: string;
+}): Promise<void> {
+  const { fieldOwnerUserId, bookerUserId, fieldName, bookingId, bookerLabel } = params;
+  const field = fieldName || 'Field';
+  const ownerId = fieldOwnerUserId || null;
+
+  if (ownerId && ownerId === bookerUserId) {
+    await sendPushToUser(bookerUserId, 'Booking updated', `Your booking at "${field}" was rescheduled.`, {
+      type: 'BOOKING_RESCHEDULED',
+      bookingId: String(bookingId),
+      openAs: 'customer',
+    });
+    return;
+  }
+
+  if (ownerId) {
+    await sendPushToUser(ownerId, 'Booking rescheduled', `${bookerLabel} rescheduled a booking at "${field}".`, {
+      type: 'BOOKING_RESCHEDULED',
+      bookingId: String(bookingId),
+      openAs: 'owner',
+    });
+  }
+  await sendPushToUser(bookerUserId, 'Booking updated', `Your booking at "${field}" was rescheduled.`, {
+    type: 'BOOKING_RESCHEDULED',
+    bookingId: String(bookingId),
+    openAs: 'customer',
+  });
+}
+
+export async function notifyBookingCancelledPushes(params: {
+  fieldOwnerUserId: string | null | undefined;
+  bookerUserId: string;
+  fieldName: string;
+  bookingId: string;
+  bookerLabel: string;
+}): Promise<void> {
+  const { fieldOwnerUserId, bookerUserId, fieldName, bookingId, bookerLabel } = params;
+  const field = fieldName || 'Field';
+  const ownerId = fieldOwnerUserId || null;
+
+  if (ownerId && ownerId === bookerUserId) {
+    await sendPushToUser(bookerUserId, 'Booking cancelled', `Your booking at "${field}" has been cancelled.`, {
+      type: 'BOOKING_CANCELLED',
+      bookingId: String(bookingId),
+      openAs: 'customer',
+    });
+    return;
+  }
+
+  if (ownerId) {
+    await sendPushToUser(ownerId, 'Booking cancelled', `${bookerLabel} cancelled a booking at "${field}".`, {
+      type: 'BOOKING_CANCELLED',
+      bookingId: String(bookingId),
+      openAs: 'owner',
+    });
+  }
+  await sendPushToUser(bookerUserId, 'Booking cancelled', `Your booking at "${field}" has been cancelled.`, {
+    type: 'BOOKING_CANCELLED',
+    bookingId: String(bookingId),
+    openAs: 'customer',
+  });
 }

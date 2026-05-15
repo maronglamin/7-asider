@@ -26,7 +26,7 @@ interface Props {
 export default function CustomerBookedDetails({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { token } = useAuth() as any;
-  const bookingId = route?.params?.booking?.id as string | undefined;
+  const bookingId = (route?.params?.booking?.id || route?.params?.bookingId) as string | undefined;
   const [booking, setBooking] = useState<any>(route?.params?.booking);
   const field = booking?.field || {};
   const fieldStatus = String(field?.status || '').toUpperCase();

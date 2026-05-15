@@ -268,20 +268,19 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
 
     console.log('[POST /bookings] created booking id:', result.id);
 
-    if (field.userId && field.userId !== userId) {
-      const booker = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { name: true, email: true },
-      });
-      const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
-      const { notifyFieldOwnerNewBooking } = await import('../services/pushNotifications');
-      void notifyFieldOwnerNewBooking({
-        ownerUserId: field.userId,
-        fieldName: field.name || 'Your field',
-        bookingId: result.id,
-        bookerLabel,
-      }).catch((err) => console.warn('[POST /bookings] owner push failed', err));
-    }
+    const booker = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+    const { notifyNewBookingPushes } = await import('../services/pushNotifications');
+    void notifyNewBookingPushes({
+      fieldOwnerUserId: field.userId,
+      bookerUserId: userId,
+      fieldName: field.name || 'Your field',
+      bookingId: result.id,
+      bookerLabel,
+    }).catch((err) => console.warn('[POST /bookings] booking push failed', err));
 
     res.json({ ok: true, bookingId: result.id, totalAmount });
   } catch (e: any) {
@@ -490,20 +489,19 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
 
     const { _count, ...booking } = updated;
     const fieldOwnerId = booking.field?.userId;
-    if (fieldOwnerId && fieldOwnerId !== userId) {
-      const booker = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { name: true, email: true },
-      });
-      const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
-      const { notifyFieldOwnerBookingRescheduled } = await import('../services/pushNotifications');
-      void notifyFieldOwnerBookingRescheduled({
-        ownerUserId: fieldOwnerId,
-        fieldName: booking.field?.name || 'Your field',
-        bookingId: booking.id,
-        bookerLabel,
-      }).catch((err) => console.warn('[PATCH /bookings/:id/reschedule] owner push failed', err));
-    }
+    const booker = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+    const { notifyReschedulePushes } = await import('../services/pushNotifications');
+    void notifyReschedulePushes({
+      fieldOwnerUserId: fieldOwnerId,
+      bookerUserId: userId,
+      fieldName: booking.field?.name || 'Your field',
+      bookingId: booking.id,
+      bookerLabel,
+    }).catch((err) => console.warn('[PATCH /bookings/:id/reschedule] booking push failed', err));
 
     res.json({
       ok: true,
@@ -544,7 +542,7 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
     const existing = await (prisma as any).booking.findUnique({
       where: { id },
       include: {
-        field: { select: { userId: true } },
+        field: { select: { userId: true, name: true } },
       },
     });
     if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
@@ -571,6 +569,22 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
       await tx.booking.update({ where: { id }, data: { status: 'CANCELLED' } });
     });
+
+    const ownerId = existing.field?.userId as string | undefined;
+    const fieldName = (existing.field?.name as string | undefined) || 'Your field';
+    const booker = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, email: true },
+    });
+    const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+    const { notifyBookingCancelledPushes } = await import('../services/pushNotifications');
+    void notifyBookingCancelledPushes({
+      fieldOwnerUserId: ownerId,
+      bookerUserId: userId,
+      fieldName,
+      bookingId: id,
+      bookerLabel,
+    }).catch((err) => console.warn('[POST /bookings/:id/cancel] booking push failed', err));
 
     res.json({ ok: true });
   } catch (e: any) {

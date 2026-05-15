@@ -1,4 +1,4 @@
-const CACHE_NAME = '7aside-static-v7';
+const CACHE_NAME = '7aside-static-v8';
 // Keep the install shell small: '/' + manifest only. /icon.png is large and is
 // fetched when the browser/PWA needs it; precaching it slowed SW activation.
 const APP_SHELL = ['/', '/manifest.json'];
@@ -90,19 +90,23 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification.data || {};
   const bookingId = data.bookingId != null ? String(data.bookingId) : '';
+  const openAs = data.openAs === 'customer' ? 'customer' : 'owner';
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       if (bookingId) {
         clientList.forEach((client) => {
-          client.postMessage({ type: 'OPEN_OWNER_BOOKING', bookingId });
+          client.postMessage({ type: 'OPEN_BOOKING_PUSH', bookingId, openAs });
         });
       }
       if (clientList.length > 0 && 'focus' in clientList[0]) {
         return clientList[0].focus();
       }
       if (bookingId && self.clients.openWindow) {
-        const url = new URL(`/owner-booking/${encodeURIComponent(bookingId)}`, self.location.origin).href;
-        return self.clients.openWindow(url);
+        const path =
+          openAs === 'customer'
+            ? `/my-booking/${encodeURIComponent(bookingId)}`
+            : `/owner-booking/${encodeURIComponent(bookingId)}`;
+        return self.clients.openWindow(new URL(path, self.location.origin).href);
       }
       if (self.clients.openWindow) {
         return self.clients.openWindow(new URL('/', self.location.origin).href);

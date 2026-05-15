@@ -14,6 +14,7 @@ export function getNavigationLinking() {
     config: {
       screens: {
         OwnerBookingDetail: 'owner-booking/:bookingId',
+        CustomerBookedDetails: 'my-booking/:bookingId',
       },
     },
   };

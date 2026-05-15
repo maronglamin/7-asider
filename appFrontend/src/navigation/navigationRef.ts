@@ -2,28 +2,49 @@ import { createNavigationContainerRef } from '@react-navigation/native';
 
 export const navigationRef = createNavigationContainerRef();
 
-let pendingOwnerBookingId: string | null = null;
+type PendingBookingPush = { bookingId: string; openAs: 'owner' | 'customer' };
+let pendingBookingPush: PendingBookingPush | null = null;
 
-/** Call from `NavigationContainer` `onReady` (and after login) to open a queued owner booking. */
-export function flushPendingOwnerBookingNavigation() {
-  if (!pendingOwnerBookingId || !navigationRef.isReady()) return;
-  const id = pendingOwnerBookingId;
+function flushPendingBookingPushNavigation() {
+  if (!pendingBookingPush || !navigationRef.isReady()) return;
+  const { bookingId, openAs } = pendingBookingPush;
   try {
-    (navigationRef as any).navigate('OwnerBookingDetail', { bookingId: id });
-    pendingOwnerBookingId = null;
+    if (openAs === 'customer') {
+      (navigationRef as any).navigate('CustomerBookedDetails', {
+        bookingId,
+        booking: { id: bookingId },
+      });
+    } else {
+      (navigationRef as any).navigate('OwnerBookingDetail', { bookingId });
+    }
+    pendingBookingPush = null;
   } catch (e) {
-    console.warn('[nav] OwnerBookingDetail navigate failed', e);
+    console.warn('[nav] booking push navigate failed', e);
   }
 }
 
-/** Queue navigation to owner booking detail (used by push / service worker). Waits until nav is ready. */
-export function navigateToOwnerBookingFromPush(bookingId: string) {
+/** @deprecated use navigateToBookingFromPush */
+export function flushPendingOwnerBookingNavigation() {
+  flushPendingBookingPushNavigation();
+}
+
+/**
+ * Queue navigation from a booking push (native or service worker).
+ * `openAs` controls which detail screen opens; defaults to owner (field) view.
+ */
+export function navigateToBookingFromPush(bookingId: string, openAsRaw?: unknown) {
   const id = String(bookingId || '').trim();
   if (!id) return;
-  pendingOwnerBookingId = id;
-  flushPendingOwnerBookingNavigation();
+  const openAs = openAsRaw === 'customer' ? 'customer' : 'owner';
+  pendingBookingPush = { bookingId: id, openAs };
+  flushPendingBookingPushNavigation();
+}
+
+/** @deprecated use navigateToBookingFromPush(bookingId, 'owner') */
+export function navigateToOwnerBookingFromPush(bookingId: string) {
+  navigateToBookingFromPush(bookingId, 'owner');
 }
 
 export function onNavigationContainerReady() {
-  flushPendingOwnerBookingNavigation();
+  flushPendingBookingPushNavigation();
 }
