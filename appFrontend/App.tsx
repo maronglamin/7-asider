@@ -304,10 +304,11 @@ export default function App() {
         return;
       }
 
+      const isWeb = Platform.OS === 'web';
       const nextNotice: ReleaseNotice = {
-        mode: response.mode,
-        updateAvailable: response.updateAvailable,
-        forceUpdate: response.forceUpdate,
+        mode: isWeb ? 'none' : response.mode,
+        updateAvailable: isWeb ? false : response.updateAvailable,
+        forceUpdate: isWeb ? false : response.forceUpdate,
         title: response.title,
         message: response.message,
         storeUrl: response.storeUrl,
@@ -315,8 +316,13 @@ export default function App() {
         latestBuild: response.latestBuild,
       };
 
+      if (!nextNotice.updateAvailable) {
+        setReleaseNotice(null);
+        return;
+      }
+
       const releaseKey = getReleaseKey(nextNotice);
-      if (!response.forceUpdate && dismissedReleaseKeyRef.current === releaseKey) return;
+      if (!nextNotice.forceUpdate && dismissedReleaseKeyRef.current === releaseKey) return;
       setReleaseNotice(nextNotice);
     } catch (error) {
       console.log('[App] release check skipped', error);

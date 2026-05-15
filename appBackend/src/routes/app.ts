@@ -51,6 +51,10 @@ function hasReleaseValue(ref: ReleaseRef): boolean {
 }
 
 router.get('/release', (req: Request, res: Response) => {
+  const platform = String(req.query.platform || 'unknown');
+  /** PWA / web uses embedded app version metadata, not Play Store build numbers — do not apply native force/optional policy. */
+  const skipMobileStoreReleasePolicy = platform.toLowerCase() === 'web';
+
   const current: ReleaseRef = {
     version: normalizeVersion(req.query.version),
     build: normalizeBuild(req.query.build),
@@ -70,9 +74,15 @@ router.get('/release', (req: Request, res: Response) => {
   const hasLatest = hasReleaseValue(latest);
   const hasMinimum = hasReleaseValue(minimumSupported);
 
-  const forceUpdate = hasCurrent && hasMinimum && compareRelease(current, minimumSupported) < 0;
-  const updateAvailable = forceUpdate || (hasCurrent && hasLatest && compareRelease(current, latest) < 0);
-  const mode = forceUpdate ? 'force' : updateAvailable ? 'optional' : 'none';
+  let forceUpdate = hasCurrent && hasMinimum && compareRelease(current, minimumSupported) < 0;
+  let updateAvailable = forceUpdate || (hasCurrent && hasLatest && compareRelease(current, latest) < 0);
+  let mode: 'none' | 'optional' | 'force' = forceUpdate ? 'force' : updateAvailable ? 'optional' : 'none';
+
+  if (skipMobileStoreReleasePolicy) {
+    forceUpdate = false;
+    updateAvailable = false;
+    mode = 'none';
+  }
 
   const title = forceUpdate
     ? process.env.MOBILE_FORCE_UPDATE_TITLE || process.env.MOBILE_UPDATE_TITLE || 'Update required'
@@ -83,7 +93,7 @@ router.get('/release', (req: Request, res: Response) => {
     : process.env.MOBILE_UPDATE_MESSAGE || 'A newer version of the app is available.';
 
   res.json({
-    platform: String(req.query.platform || 'unknown'),
+    platform,
     mode,
     updateAvailable,
     forceUpdate,
