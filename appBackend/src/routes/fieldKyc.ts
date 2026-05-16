@@ -140,6 +140,7 @@ router.get('/public', async (req: Request, res: Response) => {
         name: true,
         city: true,
         address: true,
+        phone: true,
         surfaceType: true,
         size: true,
         pricePerHour: true,

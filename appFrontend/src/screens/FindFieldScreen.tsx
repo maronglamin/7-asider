@@ -9,10 +9,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Search, SlidersHorizontal, ArrowLeft, ChevronRight } from 'lucide-react-native';
+import { Search, SlidersHorizontal, ArrowLeft, ChevronRight, Phone } from 'lucide-react-native';
 import { apiGet, resolveMediaUrl } from '../api/client';
 
 type PublicField = {
@@ -20,6 +21,7 @@ type PublicField = {
   name: string;
   city?: string | null;
   address?: string | null;
+  phone?: string | null;
   pricePerHour?: number | null;
   images: { id: string; url: string; order: number }[];
   updatedAt: string;
@@ -30,6 +32,34 @@ type ApiResponse = {
   nextOffset: number;
   hasMore: boolean;
 };
+
+function hasDisplayablePhone(v: string | null | undefined): boolean {
+  if (v == null) return false;
+  return String(v).trim().length > 0;
+}
+
+/** Older backends omitted `phone` on the list route but still return it on `GET .../public/:id`. */
+async function enrichMissingPhones(list: PublicField[]): Promise<PublicField[]> {
+  const missing = list.filter((x) => !hasDisplayablePhone(x.phone));
+  if (missing.length === 0) return list;
+  const resolved = await Promise.all(
+    missing.map(async (x) => {
+      try {
+        const detail = await apiGet<{ phone?: string | null }>(`/fields/kyc/public/${x.id}`);
+        return { id: x.id, phone: detail.phone ?? null };
+      } catch {
+        return { id: x.id, phone: null as string | null };
+      }
+    })
+  );
+  const byId = new Map(resolved.map((r) => [r.id, r.phone] as const));
+  return list.map((x) => {
+    if (hasDisplayablePhone(x.phone)) return x;
+    const p = byId.get(x.id);
+    if (!hasDisplayablePhone(p)) return x;
+    return { ...x, phone: p };
+  });
+}
 
 type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'shuffle' | 'nearest';
 
@@ -69,7 +99,8 @@ export default function FindFieldScreen({ navigation }: Props) {
           // shuffle on client for a fun discovery feel
           newItems = [...newItems].sort(() => Math.random() - 0.5);
         }
-        setItems((prev) => (reset ? newItems : [...prev, ...newItems]));
+        const withPhones = await enrichMissingPhones(newItems);
+        setItems((prev) => (reset ? withPhones : [...prev, ...withPhones]));
         setOffset(res.nextOffset);
         setHasMore(res.hasMore);
       } catch (_) {
@@ -118,12 +149,34 @@ export default function FindFieldScreen({ navigation }: Props) {
   const renderItem = useCallback(({ item }: { item: PublicField }) => {
     const img = resolveMediaUrl(item.images?.[0]?.url);
     const price = item.pricePerHour != null ? `GMD ${item.pricePerHour}/hour` : '—';
+    const phoneRaw = hasDisplayablePhone(item.phone) ? String(item.phone).trim() : '';
+    const telDigits = phoneRaw.replace(/[^\d+]/g, '');
+    const openDialer = () => {
+      if (!telDigits) return;
+      Linking.openURL(`tel:${telDigits}`).catch(() => {});
+    };
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation?.navigate('Booking', { fieldId: item.id })}>
         {img ? <Image source={{ uri: img }} style={styles.cardImage} /> : <View style={[styles.cardImage, styles.cardImagePlaceholder]} />}
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle}>{item.name}</Text>
           <Text style={styles.cardSub}>{item.address || item.city || ''}</Text>
+          <View style={styles.cardPhoneRow}>
+            <Phone size={18} color={phoneRaw ? '#16a34a' : '#9ca3af'} />
+            {phoneRaw ? (
+              <TouchableOpacity
+                onPress={openDialer}
+                activeOpacity={0.7}
+                style={styles.cardPhoneTap}
+                accessibilityRole="button"
+                accessibilityLabel={`Call ${phoneRaw}`}
+              >
+                <Text style={styles.cardPhoneText}>{phoneRaw}</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.cardPhoneMissing}>No phone number listed for this field</Text>
+            )}
+          </View>
           <View style={styles.cardFooter}>
             <Text style={styles.cardPrice}>{price}</Text>
             <ChevronRight size={18} color="#16a34a" />
@@ -332,7 +385,29 @@ const styles = StyleSheet.create({
   cardSub: {
     fontSize: 14,
     color: '#6b7280',
+    marginBottom: 8,
+  },
+  cardPhoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 12,
+    paddingVertical: 4,
+  },
+  cardPhoneTap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  cardPhoneText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  cardPhoneMissing: {
+    flex: 1,
+    fontSize: 14,
+    color: '#9ca3af',
+    fontStyle: 'italic',
   },
   cardFooter: {
     flexDirection: 'row',
