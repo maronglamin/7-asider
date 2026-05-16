@@ -119,6 +119,74 @@ const buildInitialSelection = (booking: any) => {
   };
 };
 
+/** Mirrors backend `toUtcMidnight` in bookings route (plan uses UTC calendar days). */
+function toUtcMidnightDate(dateStr: string): Date {
+  return new Date(`${dateStr}T00:00:00.000Z`);
+}
+
+function clampBookingHour(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(23, Math.max(0, Math.floor(n)));
+}
+
+/**
+ * Same startAt/endAt semantics as backend `buildBookingPlan` so we can detect a no-op reschedule.
+ */
+function computeRescheduleBoundsFromUi(params: {
+  preset: DurationPreset;
+  customHours: number;
+  selectedDate: string;
+  selectedDates: string[];
+  selectedTimes: string[];
+}): { startAt: Date; endAt: Date } | null {
+  const { preset, customHours, selectedDate, selectedDates, selectedTimes } = params;
+  const isHoursBased = preset === '1h' || preset === '2h' || preset === '3h' || preset === 'halfDay' || preset === 'custom';
+  const isFullDay = preset === 'day';
+  const isMultiDay = preset === '2d' || preset === '3d' || preset === 'week';
+
+  const hasValid =
+    (isHoursBased && !!selectedDate && selectedTimes.length > 0)
+    || (isFullDay && !!selectedDate)
+    || (isMultiDay && selectedDates.length > 0);
+  if (!hasValid) return null;
+
+  type Unit = { date: Date; hourStart: number };
+  const units: Unit[] = [];
+
+  if (isFullDay) {
+    const day = toUtcMidnightDate(selectedDate);
+    for (let h = 0; h < 24; h++) units.push({ date: new Date(day.getTime()), hourStart: h });
+  } else if (isMultiDay) {
+    for (const ds of selectedDates) {
+      const day = toUtcMidnightDate(ds);
+      for (let h = 0; h < 24; h++) units.push({ date: new Date(day.getTime()), hourStart: h });
+    }
+  } else {
+    const day = toUtcMidnightDate(selectedDate);
+    const firstSlot = selectedTimes[0] || '00:00 - 01:00';
+    const start = clampBookingHour(parseInt(firstSlot.slice(0, 2), 10));
+    const total = Math.max(1, Math.min(24, selectedTimes.length));
+    if (start + total > 24) return null;
+    for (let h = 0; h < total; h++) units.push({ date: new Date(day.getTime()), hourStart: start + h });
+  }
+
+  const sorted = [...units].sort((a, b) => a.date.getTime() - b.date.getTime() || a.hourStart - b.hourStart);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  const startAt = new Date(first.date);
+  startAt.setUTCHours(first.hourStart, 0, 0, 0);
+  const endAt = new Date(last.date);
+  endAt.setUTCHours(last.hourStart + 1, 0, 0, 0);
+  return { startAt, endAt };
+}
+
+function bookingBoundsMatchDb(booking: any, bounds: { startAt: Date; endAt: Date } | null): boolean {
+  if (!bounds || !booking?.startAt || !booking?.endAt) return false;
+  const dbS = new Date(booking.startAt).getTime();
+  const dbE = new Date(booking.endAt).getTime();
+  return bounds.startAt.getTime() === dbS && bounds.endAt.getTime() === dbE;
+}
+
 export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -351,6 +419,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       || (isFullDay && !!selectedDate)
       || (isMultiDay && selectedDates.length > 0);
     if (!hasValid) return;
+    if (isReschedule && existingBookingId && rescheduleUnchanged) return;
     try {
       const fieldId = route?.params?.fieldId as string | undefined;
       if (!fieldId) throw new Error('Missing fieldId');
@@ -423,6 +492,19 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     (isHoursBased && !!selectedDate && selectedTimes.length > 0)
     || (isFullDay && !!selectedDate)
     || (isMultiDay && selectedDates.length > 0);
+
+  const rescheduleUnchanged = useMemo(() => {
+    if (!isReschedule || !rescheduleBooking) return false;
+    const bounds = computeRescheduleBoundsFromUi({
+      preset,
+      customHours,
+      selectedDate,
+      selectedDates,
+      selectedTimes,
+    });
+    return bookingBoundsMatchDb(rescheduleBooking, bounds);
+  }, [isReschedule, rescheduleBooking, preset, customHours, selectedDate, selectedDates, selectedTimes]);
+
   /** Space so the docked summary bar does not cover date/time controls (notably when reschedule prefills selection). */
   const scrollBottomPadding = showBookingSummary ? 88 + insets.bottom : 28;
 
@@ -755,7 +837,13 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
 
       {showBookingSummary ? (
         <View style={[styles.confirmDock, { paddingBottom: Math.max(16, 12 + insets.bottom) }]}>
-          <TouchableOpacity style={styles.confirmButton} onPress={handleBooking} activeOpacity={0.9}>
+          <TouchableOpacity
+            style={[styles.confirmButton, isReschedule && rescheduleUnchanged && styles.confirmButtonDisabled]}
+            onPress={handleBooking}
+            activeOpacity={0.9}
+            disabled={isReschedule && rescheduleUnchanged}
+            accessibilityState={{ disabled: !!(isReschedule && rescheduleUnchanged) }}
+          >
             <Text style={styles.confirmButtonText}>{isReschedule ? 'Confirm reschedule' : 'Confirm booking'}</Text>
           </TouchableOpacity>
         </View>
@@ -1234,6 +1322,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.45,
   },
   confirmButtonText: {
     color: '#ffffff',
