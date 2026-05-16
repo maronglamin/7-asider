@@ -107,9 +107,29 @@ export function installWebNativeCompat() {
   };
 
   Linking.openURL = async (url: string) => {
-    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    const trimmed = String(url || '').trim();
+    const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+    const scheme = (schemeMatch?.[1] || '').toLowerCase();
+    // window.open(..., '_blank') on tel:/mailto: opens an empty extra tab and leaves the PWA;
+    // same-document navigation / synthetic <a> click hands off to the OS dialer or mail app.
+    const openInPlaceSchemes = new Set(['tel', 'mailto', 'sms', 'facetime', 'facetime-audio', 'geo']);
+    if (scheme && openInPlaceSchemes.has(scheme)) {
+      if (typeof document !== 'undefined') {
+        const a = document.createElement('a');
+        a.href = trimmed;
+        a.rel = 'noopener noreferrer';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        window.location.href = trimmed;
+      }
+      return;
+    }
+
+    const opened = window.open(trimmed, '_blank', 'noopener,noreferrer');
     if (!opened) {
-      window.location.href = url;
+      window.location.href = trimmed;
     }
   };
 }
