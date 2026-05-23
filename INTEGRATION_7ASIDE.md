@@ -121,12 +121,17 @@ Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay pl
 - **201** — new order  
 - **200** — same `partnerExternalBookingId` still pending (same order returned)
 
-**Body:** `partnerExternalBookingId` (string), `amountGmd` (positive number), optional `currency` (default `GMD`).
+**Body:** `partnerExternalBookingId` (string), `amountGmd` (positive number), optional `currency` (default `GMD`), optional `category` (free-text label, e.g. field name + slot).
 
 ```typescript
 async function createEasypayOrder(
   businessId: string,
-  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
+  input: {
+    partnerExternalBookingId: string;
+    amountGmd: number;
+    currency?: string;
+    category?: string;
+  },
 ) {
   const res = await fetch(
     `${EASYPAY_API_BASE_URL}/api/internal-partner/v1/businesses/${encodeURIComponent(businessId)}/orders`,

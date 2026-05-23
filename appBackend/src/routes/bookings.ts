@@ -9,6 +9,7 @@ import {
   cancelEasypayOrder,
   completeEasypayApsWallet,
   createEasypayOrder,
+  formatEasypayOrderCategory,
   getEasypayPartnerConfig,
   listEasypayWallets,
   easypayGatewayCodeNeedsPayerPhone,
@@ -86,6 +87,11 @@ async function ensureEasypayOrderIdOnBooking(
     partnerExternalBookingId: bookingId,
     amountGmd,
     currency: booking.currency || 'GMD',
+    category: formatEasypayOrderCategory({
+      fieldName: booking.field?.name,
+      startAt: booking.startAt,
+      endAt: booking.endAt,
+    }),
   });
   latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
     businessId: ownerBusinessId,
@@ -853,6 +859,11 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       partnerExternalBookingId: booking.id,
       amountGmd,
       currency: booking.currency || 'GMD',
+      category: formatEasypayOrderCategory({
+        fieldName: booking.field?.name,
+        startAt: booking.startAt,
+        endAt: booking.endAt,
+      }),
     });
     const wallets = await listEasypayWallets(owner.easypayBusinessId, order.id);
     console.log('[easypay/prepare] ok', { bookingId: id, orderId: order.id, walletCount: wallets.length });
@@ -910,7 +921,7 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     const booking = await (prisma as any).booking.findUnique({
       where: { id },
       include: {
-        field: { select: { userId: true } },
+        field: { select: { userId: true, name: true } },
       },
     });
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
@@ -935,6 +946,11 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
         partnerExternalBookingId: booking.id,
         amountGmd,
         currency: booking.currency || 'GMD',
+        category: formatEasypayOrderCategory({
+          fieldName: booking.field?.name,
+          startAt: booking.startAt,
+          endAt: booking.endAt,
+        }),
       });
       orderId = order.id;
       latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
@@ -1005,7 +1021,7 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
     }
     const booking = await (prisma as any).booking.findUnique({
       where: { id },
-      include: { field: { select: { userId: true } } },
+      include: { field: { select: { userId: true, name: true } } },
     });
     if (!booking) return res.status(404).json({ error: 'Booking not found.' });
     if (String(booking.userId) !== String(userId)) {
@@ -1069,7 +1085,7 @@ router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest,
     }
     const booking = await (prisma as any).booking.findUnique({
       where: { id },
-      include: { field: { select: { userId: true } } },
+      include: { field: { select: { userId: true, name: true } } },
     });
     if (!booking) return res.status(404).json({ error: 'Booking not found.' });
     if (String(booking.userId) !== String(userId)) {

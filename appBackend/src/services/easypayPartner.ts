@@ -108,9 +108,33 @@ export async function provisionEasypayTenant(input: {
   return json.data;
 }
 
+/** Human-readable order category for Easypay: "{field name} — {date}, {start}–{end}" (UTC slot). */
+export function formatEasypayOrderCategory(input: {
+  fieldName?: string | null;
+  startAt: Date | string;
+  endAt: Date | string;
+}): string {
+  const name = String(input.fieldName || '').trim() || 'Field booking';
+  const start = new Date(input.startAt);
+  const end = new Date(input.endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return name;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const day = start.toISOString().slice(0, 10);
+  const from = `${pad(start.getUTCHours())}:00`;
+  const to = `${pad(end.getUTCHours())}:00`;
+  const endDay = end.toISOString().slice(0, 10);
+  if (day === endDay) return `${name} — ${day}, ${from}–${to}`;
+  return `${name} — ${day} ${from} to ${endDay} ${to}`;
+}
+
 export async function createEasypayOrder(
   businessId: string,
-  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
+  input: {
+    partnerExternalBookingId: string;
+    amountGmd: number;
+    currency?: string;
+    category?: string;
+  },
 ) {
   const json = await partnerJson<{
     data?: {
