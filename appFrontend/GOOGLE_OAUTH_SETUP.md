@@ -31,7 +31,7 @@ Or copy SHA-1 from Google Play Console → Release → App signing.
 
 ## 3. Environment variables
 
-**Frontend** (`appFrontend/.env` — copy from `.env.example`):
+**Frontend** (`appFrontend/.env` — not committed; copy from `.env.example`):
 
 ```env
 EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID=...
@@ -39,13 +39,15 @@ EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID=...
 EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID=...
 ```
 
+At build/dev time, `npm run generate:oauth` writes `src/config/oauth.generated.ts` (gitignored) from those vars.
+
 **Backend** (`appBackend/.env`):
 
 ```env
 GOOGLE_CLIENT_IDS=your-web-client-id.apps.googleusercontent.com
 ```
 
-Use the **Web** client ID for backend audience validation.
+Use the **Web** client ID for token verification. The same value is returned by `GET /auth/public-config` so production web can load the client ID at runtime without committing it to the frontend repo.
 
 ### Redirect URI (fix `redirect_uri_mismatch`)
 

@@ -10,7 +10,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Mail, ArrowRight } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { isGoogleSignInConfigured } from '../../auth/googleClientIds';
+import { useGoogleClientIds } from '../../auth/googleClientIds';
 import { LoginScreenGoogleDivider, LoginScreenGoogleSignIn } from '../../auth/GoogleSignInControls';
 
 interface LoginScreenProps {
@@ -19,7 +19,7 @@ interface LoginScreenProps {
 
 export function LoginScreen({ navigation }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
-  const googleConfigured = isGoogleSignInConfigured();
+  const { clientIds, configured } = useGoogleClientIds();
 
   const handleEmailLogin = () => {
     navigation?.navigate('Register');
@@ -40,8 +40,8 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
         </View>
 
         <View style={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-          {googleConfigured ? <LoginScreenGoogleSignIn navigation={navigation} /> : null}
-          {googleConfigured ? <LoginScreenGoogleDivider /> : null}
+          {configured ? <LoginScreenGoogleSignIn navigation={navigation} clientIds={clientIds} /> : null}
+          {configured ? <LoginScreenGoogleDivider /> : null}
 
           <TouchableOpacity style={styles.emailButton} onPress={handleEmailLogin}>
             <Mail size={20} color="#16a34a" />
