@@ -1,10 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { makeRedirectUri } from 'expo-auth-session';
 import { apiPost } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { getGoogleClientIds, type GoogleClientIds } from './googleClientIds';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -16,38 +16,33 @@ type GoogleAuthUser = {
   provider?: string | null;
 };
 
-type GoogleSignInResult = { ok: true } | { ok: false; error: string };
+export type GoogleSignInResult = { ok: true } | { ok: false; error: string };
 
-function getGoogleClientIds() {
-  const extra = (Constants.expoConfig?.extra || {}) as Record<string, string>;
-  return {
-    webClientId: extra['GOOGLE_WEB_CLIENT_ID'] || '',
-    iosClientId: extra['GOOGLE_IOS_CLIENT_ID'] || '',
-    androidClientId: extra['GOOGLE_ANDROID_CLIENT_ID'] || '',
-  };
-}
-
-export function useGoogleSignIn() {
+/**
+ * Only mount from a component rendered when `isGoogleSignInConfigured()` is true.
+ * `webClientId` is required on every platform for `useIdTokenAuthRequest`.
+ */
+export function useGoogleSignIn(clientIds: GoogleClientIds) {
   const { setAuth } = useAuth();
   const [submitting, setSubmitting] = useState(false);
-  const clientIds = useMemo(() => getGoogleClientIds(), []);
 
-  const configured = Boolean(
-    clientIds.webClientId &&
-      (Platform.OS === 'web' || clientIds.iosClientId || clientIds.androidClientId),
+  const redirectUri = makeRedirectUri({ scheme: 'sevenaside' });
+  if (__DEV__) {
+    console.log('[Google sign-in] redirectUri =', redirectUri);
+  }
+
+  const [request, , promptAsync] = Google.useIdTokenAuthRequest(
+    {
+      iosClientId: clientIds.iosClientId || undefined,
+      androidClientId: clientIds.androidClientId || undefined,
+      webClientId: clientIds.webClientId,
+      redirectUri,
+    },
+    { scheme: 'sevenaside' },
   );
-
-  const [request, , promptAsync] = Google.useIdTokenAuthRequest({
-    iosClientId: clientIds.iosClientId || undefined,
-    androidClientId: clientIds.androidClientId || undefined,
-    webClientId: clientIds.webClientId || undefined,
-  });
 
   const signInWithGoogle = useCallback(async (): Promise<GoogleSignInResult> => {
     if (submitting) return { ok: false, error: 'Sign-in already in progress' };
-    if (!configured) {
-      return { ok: false, error: 'Google sign-in is not configured for this build' };
-    }
     if (!request) {
       return { ok: false, error: 'Google sign-in is not ready yet. Try again in a moment.' };
     }
@@ -84,7 +79,12 @@ export function useGoogleSignIn() {
     } finally {
       setSubmitting(false);
     }
-  }, [configured, promptAsync, request, setAuth, submitting]);
+  }, [promptAsync, request, setAuth, submitting]);
 
-  return { signInWithGoogle, submitting, configured };
+  return { signInWithGoogle, submitting };
+}
+
+/** Convenience hook for screens — reads client IDs from config/env. */
+export function useGoogleSignInFromConfig() {
+  return useGoogleSignIn(getGoogleClientIds());
 }
