@@ -8,30 +8,72 @@ import { requireAuth, AuthedRequest } from '../middleware/auth';
 
 const router = Router();
 
+function normalizeEmail(email?: string) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function toAuthUser(user: {
+  id: string;
+  email: string;
+  name: string | null;
+  supadmin: boolean;
+  provider: string | null;
+}) {
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    supadmin: user.supadmin,
+    provider: user.provider,
+  };
+}
+
 router.post('/google', async (req: Request, res: Response) => {
   try {
     const { idToken } = req.body as { idToken: string };
     if (!idToken) return res.status(400).json({ error: 'idToken required' });
     const profile = await verifyGoogleIdToken(idToken);
-    const email = profile.email || `${profile.sub}@google.local`;
-    // find non-terminated user with same email
-    let user = await prisma.user.findFirst({ where: { email, NOT: { status: 'TERMINATED' as any } } as any });
+    const email = profile.email
+      ? normalizeEmail(profile.email)
+      : `${profile.sub}@google.local`;
+  // find non-terminated user with same email
+    let user = await prisma.user.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+        NOT: { status: 'TERMINATED' as any },
+      } as any,
+    });
     if (user) {
-      // If blocked or terminated, stop; if active, update name/providerId
       const uStatus = (user as any).status;
       if (uStatus === 'TERMINATED' || uStatus === 'BLOCKED') {
         return res.status(403).json({ error: 'Account is disabled' });
       }
-      user = await prisma.user.update({ where: { id: user.id }, data: { name: profile.name, provider: 'google', providerId: profile.sub } });
+      if (user.provider === 'email') {
+        return res.status(409).json({
+          error: 'An account with this email already exists. Sign in with email and password.',
+        });
+      }
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { name: profile.name, provider: 'google', providerId: profile.sub, email },
+      });
     } else {
-      user = await prisma.user.create({ data: { email, name: profile.name, provider: 'google', providerId: profile.sub, status: 'ACTIVE' as any } as any });
+      user = await prisma.user.create({
+        data: {
+          email,
+          name: profile.name,
+          provider: 'google',
+          providerId: profile.sub,
+          status: 'ACTIVE' as any,
+        } as any,
+      });
     }
     if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
       return res.status(403).json({ error: 'Account is disabled' });
     }
     const jwt = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'google' });
     await prisma.session.create({ data: { userId: user.id, token: jwt } });
-    res.json({ token: jwt, profile });
+    res.json({ token: jwt, user: toAuthUser(user) });
   } catch (e: any) {
     res.status(401).json({ error: e.message || 'Google verification failed' });
   }

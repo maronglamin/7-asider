@@ -6,10 +6,13 @@ import {
   TouchableOpacity,
   Platform,
   ScrollView,
+  Image,
+  ActivityIndicator,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Mail, ArrowRight } from 'lucide-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useGoogleSignIn } from '../../auth/useGoogleSignIn';
 
 interface LoginScreenProps {
   navigation?: any;
@@ -17,9 +20,21 @@ interface LoginScreenProps {
 
 export function LoginScreen({ navigation }: LoginScreenProps) {
   const insets = useSafeAreaInsets();
+  const { signInWithGoogle, submitting, configured } = useGoogleSignIn();
 
   const handleEmailLogin = () => {
     navigation?.navigate('Register');
+  };
+
+  const handleGoogleLogin = async () => {
+    const result = await signInWithGoogle();
+    if (result.ok) {
+      navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
+      return;
+    }
+    if (result.error !== 'Sign-in cancelled') {
+      alert(result.error);
+    }
   };
 
   return (
@@ -39,6 +54,33 @@ export function LoginScreen({ navigation }: LoginScreenProps) {
 
         {/* Login Options */}
         <View style={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+          {configured ? (
+            <View style={styles.socialButtons}>
+              <TouchableOpacity
+                style={[styles.socialButton, submitting ? styles.socialButtonDisabled : undefined]}
+                onPress={handleGoogleLogin}
+                disabled={submitting}
+              >
+                <View style={styles.logoContainer}>
+                  <Image
+                    source={require('../../../assets/google.png')}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
+                </View>
+                <Text style={styles.socialButtonText}>Continue with Google</Text>
+                {submitting ? <ActivityIndicator size="small" color="#16a34a" /> : null}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          {configured ? (
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+          ) : null}
 
           {/* Email Registration */}
           <TouchableOpacity style={styles.emailButton} onPress={handleEmailLogin}>
@@ -117,6 +159,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 3,
     elevation: 3,
+  },
+  socialButtonDisabled: {
+    opacity: 0.7,
   },
   logoContainer: {
     width: 32,

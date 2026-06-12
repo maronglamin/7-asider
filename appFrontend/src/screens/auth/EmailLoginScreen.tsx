@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform, Image, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft } from 'lucide-react-native';
 import { apiPost } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useGoogleSignIn } from '../../auth/useGoogleSignIn';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function EmailLoginScreen({ navigation }: { navigation?: any }) {
@@ -12,6 +13,7 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { setAuth } = useAuth();
+  const { signInWithGoogle, submitting: googleSubmitting, configured: googleConfigured } = useGoogleSignIn();
 
   const handleLogin = async () => {
     if (submitting) return;
@@ -31,6 +33,18 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
   };
 
   const canSubmit = email.trim() && password;
+  const busy = submitting || googleSubmitting;
+
+  const handleGoogleLogin = async () => {
+    const result = await signInWithGoogle();
+    if (result.ok) {
+      navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
+      return;
+    }
+    if (result.error !== 'Sign-in cancelled') {
+      alert(result.error);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -75,12 +89,32 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.loginButton, !canSubmit || submitting ? styles.loginButtonDisabled : undefined]}
+          style={[styles.loginButton, !canSubmit || busy ? styles.loginButtonDisabled : undefined]}
           onPress={handleLogin}
-          disabled={!canSubmit || submitting}
+          disabled={!canSubmit || busy}
         >
           <Text style={styles.loginButtonText}>{submitting ? 'Signing in...' : 'Sign In'}</Text>
         </TouchableOpacity>
+
+        {googleConfigured ? (
+          <>
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.googleButton, busy ? styles.googleButtonDisabled : undefined]}
+              onPress={handleGoogleLogin}
+              disabled={busy}
+            >
+              <Image source={require('../../../assets/google.png')} style={styles.googleLogo} resizeMode="contain" />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+              {googleSubmitting ? <ActivityIndicator size="small" color="#16a34a" /> : null}
+            </TouchableOpacity>
+          </>
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -102,6 +136,13 @@ const styles = StyleSheet.create({
   loginButton: { backgroundColor: '#16a34a', paddingVertical: 16, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, alignItems: 'center', ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: 'calc(100% - 64px)', maxWidth: 696 } as any) : null) },
   loginButtonDisabled: { backgroundColor: '#d1d5db' },
   loginButtonText: { color: '#ffffff', fontSize: 16, fontWeight: '600' },
+  divider: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 32, marginBottom: 20, ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: 'calc(100% - 64px)', maxWidth: 696 } as any) : null) },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#e5e7eb' },
+  dividerText: { marginHorizontal: 16, fontSize: 14, color: '#6b7280', fontWeight: '500' },
+  googleButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', paddingVertical: 14, paddingHorizontal: 20, borderRadius: 12, marginHorizontal: 32, marginBottom: 24, ...(Platform.OS === 'web' ? ({ alignSelf: 'center', width: 'calc(100% - 64px)', maxWidth: 696 } as any) : null) },
+  googleButtonDisabled: { opacity: 0.7 },
+  googleLogo: { width: 20, height: 20, marginRight: 12 },
+  googleButtonText: { flex: 1, fontSize: 16, fontWeight: '600', color: '#111827' },
 });
 
 
