@@ -55,8 +55,7 @@ appBackend/uploads/
 prisma/dev.db
 prisma/dev.db-journal
 
-# Logs
-logs/
-*.log
+# Expo OAuth client IDs generated at build time from .env (not committed)
+appFrontend/src/config/oauth.generated.ts
 
 

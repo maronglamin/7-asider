@@ -8,6 +8,16 @@ import { requireAuth, AuthedRequest } from '../middleware/auth';
 
 const router = Router();
 
+router.get('/public-config', (_req: Request, res: Response) => {
+  const raw = process.env.GOOGLE_CLIENT_IDS || '';
+  const allowed = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  res.json({
+    googleWebClientId: allowed[0] || null,
+    googleAndroidClientId: process.env.GOOGLE_ANDROID_CLIENT_ID?.trim() || null,
+    googleIosClientId: process.env.GOOGLE_IOS_CLIENT_ID?.trim() || null,
+  });
+});
+
 function normalizeEmail(email?: string) {
   return String(email || '').trim().toLowerCase();
 }

@@ -8,7 +8,8 @@ import {
   Image,
   ActivityIndicator,
 } from 'react-native';
-import { useGoogleSignInFromConfig } from './useGoogleSignIn';
+import { useGoogleSignIn } from './useGoogleSignIn';
+import type { GoogleClientIds } from './googleClientIds';
 
 type Nav = { reset?: (state: any) => void };
 
@@ -26,49 +27,41 @@ async function handleGoogleResult(
   }
 }
 
-export function LoginScreenGoogleSignIn({ navigation }: { navigation?: Nav }) {
-  const { signInWithGoogle, submitting } = useGoogleSignInFromConfig();
-
-  return (
-    <View style={loginStyles.socialButtons}>
-      <TouchableOpacity
-        style={[loginStyles.socialButton, submitting ? loginStyles.socialButtonDisabled : undefined]}
-        onPress={() => handleGoogleResult(signInWithGoogle, navigation)}
-        disabled={submitting}
-      >
-        <View style={loginStyles.logoContainer}>
-          <Image
-            source={require('../../assets/google.png')}
-            style={loginStyles.logoImage}
-            resizeMode="contain"
-          />
-        </View>
-        <Text style={loginStyles.socialButtonText}>Continue with Google</Text>
-        {submitting ? <ActivityIndicator size="small" color="#16a34a" /> : null}
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-export function LoginScreenGoogleDivider() {
-  return (
-    <View style={loginStyles.divider}>
-      <View style={loginStyles.dividerLine} />
-      <Text style={loginStyles.dividerText}>or</Text>
-      <View style={loginStyles.dividerLine} />
-    </View>
-  );
-}
-
-export function EmailLoginScreenGoogleSignIn({
+function GoogleSignInButton({
+  clientIds,
   navigation,
   disabled,
+  variant,
 }: {
+  clientIds: GoogleClientIds;
   navigation?: Nav;
   disabled?: boolean;
+  variant: 'login' | 'email';
 }) {
-  const { signInWithGoogle, submitting } = useGoogleSignInFromConfig();
+  const { signInWithGoogle, submitting } = useGoogleSignIn(clientIds);
   const busy = disabled || submitting;
+
+  if (variant === 'login') {
+    return (
+      <View style={loginStyles.socialButtons}>
+        <TouchableOpacity
+          style={[loginStyles.socialButton, busy ? loginStyles.socialButtonDisabled : undefined]}
+          onPress={() => handleGoogleResult(signInWithGoogle, navigation)}
+          disabled={busy}
+        >
+          <View style={loginStyles.logoContainer}>
+            <Image
+              source={require('../../assets/google.png')}
+              style={loginStyles.logoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <Text style={loginStyles.socialButtonText}>Continue with Google</Text>
+          {submitting ? <ActivityIndicator size="small" color="#16a34a" /> : null}
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <>
@@ -88,6 +81,45 @@ export function EmailLoginScreenGoogleSignIn({
         {submitting ? <ActivityIndicator size="small" color="#16a34a" /> : null}
       </TouchableOpacity>
     </>
+  );
+}
+
+export function LoginScreenGoogleSignIn({
+  navigation,
+  clientIds,
+}: {
+  navigation?: Nav;
+  clientIds: GoogleClientIds;
+}) {
+  return <GoogleSignInButton clientIds={clientIds} navigation={navigation} variant="login" />;
+}
+
+export function LoginScreenGoogleDivider() {
+  return (
+    <View style={loginStyles.divider}>
+      <View style={loginStyles.dividerLine} />
+      <Text style={loginStyles.dividerText}>or</Text>
+      <View style={loginStyles.dividerLine} />
+    </View>
+  );
+}
+
+export function EmailLoginScreenGoogleSignIn({
+  navigation,
+  clientIds,
+  disabled,
+}: {
+  navigation?: Nav;
+  clientIds: GoogleClientIds;
+  disabled?: boolean;
+}) {
+  return (
+    <GoogleSignInButton
+      clientIds={clientIds}
+      navigation={navigation}
+      disabled={disabled}
+      variant="email"
+    />
   );
 }
 

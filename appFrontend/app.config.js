@@ -39,9 +39,21 @@ module.exports = ({ config }) => ({
     APP_BUILD: appJsonVersionCode != null ? String(appJsonVersionCode) : '',
     // Web Push: public key only (from .env). Never put WEB_PUSH_VAPID_PRIVATE_KEY here — it must stay server-side only.
     WEB_PUSH_VAPID_PUBLIC_KEY: (process.env.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim(),
-    GOOGLE_WEB_CLIENT_ID: (process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || '').trim(),
-    GOOGLE_IOS_CLIENT_ID: (process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID || '').trim(),
-    GOOGLE_ANDROID_CLIENT_ID: (process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '').trim(),
+    GOOGLE_WEB_CLIENT_ID: (
+      process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+      (config.extra || {}).GOOGLE_WEB_CLIENT_ID ||
+      ''
+    ).trim(),
+    GOOGLE_IOS_CLIENT_ID: (
+      process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
+      (config.extra || {}).GOOGLE_IOS_CLIENT_ID ||
+      ''
+    ).trim(),
+    GOOGLE_ANDROID_CLIENT_ID: (
+      process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+      (config.extra || {}).GOOGLE_ANDROID_CLIENT_ID ||
+      ''
+    ).trim(),
   },
   plugins: [
     ...(config.plugins || []),

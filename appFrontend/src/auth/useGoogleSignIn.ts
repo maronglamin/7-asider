@@ -83,8 +83,3 @@ export function useGoogleSignIn(clientIds: GoogleClientIds) {
 
   return { signInWithGoogle, submitting };
 }
-
-/** Convenience hook for screens — reads client IDs from config/env. */
-export function useGoogleSignInFromConfig() {
-  return useGoogleSignIn(getGoogleClientIds());
-}
