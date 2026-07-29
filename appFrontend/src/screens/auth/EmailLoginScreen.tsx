@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft } from 'lucide-react-native';
 import { apiPost } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { useGoogleClientIds } from '../../auth/googleClientIds';
+import { EmailLoginScreenGoogleSignIn } from '../../auth/GoogleSignInControls';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function EmailLoginScreen({ navigation }: { navigation?: any }) {
@@ -12,6 +14,7 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const { setAuth } = useAuth();
+  const { clientIds, configured: googleConfigured } = useGoogleClientIds();
 
   const handleLogin = async () => {
     if (submitting) return;
@@ -81,6 +84,10 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
         >
           <Text style={styles.loginButtonText}>{submitting ? 'Signing in...' : 'Sign In'}</Text>
         </TouchableOpacity>
+
+        {googleConfigured ? (
+          <EmailLoginScreenGoogleSignIn navigation={navigation} clientIds={clientIds} disabled={submitting} />
+        ) : null}
       </View>
     </SafeAreaView>
   );

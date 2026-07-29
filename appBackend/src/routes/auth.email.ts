@@ -5,13 +5,15 @@ import { prisma } from '../db/prisma';
 import { signJwt } from '../utils/jwt';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { sendForgotPasswordEmail } from '../services/passwordMail';
+import {
+  findActiveUsersByEmail,
+  loginFailureReason,
+  normalizeEmail,
+  pickEmailPasswordUser,
+} from '../utils/emailAuthLookup';
 
 const router = Router();
 const GENERIC_FORGOT_PASSWORD_MESSAGE = 'If an eligible account exists for that email, a password reset message has been sent.';
-
-function normalizeEmail(email?: string) {
-  return String(email || '').trim().toLowerCase();
-}
 
 function generateTemporaryPassword() {
   let password = '';
@@ -51,13 +53,11 @@ router.post('/login-email', async (req: Request, res: Response) => {
     const { email, password } = req.body as { email: string; password: string };
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || !password) return res.status(400).json({ error: 'Missing credentials' });
-    const user = await prisma.user.findFirst({
-      where: {
-        email: { equals: normalizedEmail, mode: 'insensitive' },
-        NOT: { status: 'TERMINATED' as any },
-      } as any,
-    });
-    if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid credentials' });
+    const matches = await findActiveUsersByEmail(normalizedEmail);
+    const user = pickEmailPasswordUser(matches);
+    if (!user?.passwordHash) {
+      return res.status(401).json({ error: loginFailureReason(matches) });
+    }
     const uStatus = (user as any).status;
     if (uStatus === 'TERMINATED' || uStatus === 'BLOCKED') {
       return res.status(403).json({ error: 'Account is disabled' });
@@ -79,14 +79,10 @@ router.post('/forgot-password', async (req: Request, res: Response) => {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) return res.status(400).json({ error: 'Email is required' });
 
-    const user = await prisma.user.findFirst({
-      where: {
-        email: { equals: normalizedEmail, mode: 'insensitive' },
-        NOT: { status: 'TERMINATED' as any },
-      } as any,
-    });
+    const matches = await findActiveUsersByEmail(normalizedEmail);
+    const user = pickEmailPasswordUser(matches);
 
-    if (!user || user.provider !== 'email' || !user.passwordHash || (user as any).status !== 'ACTIVE') {
+    if (!user || user.provider !== 'email' || !user.passwordHash || user.status !== 'ACTIVE') {
       return res.json({ message: GENERIC_FORGOT_PASSWORD_MESSAGE });
     }
 

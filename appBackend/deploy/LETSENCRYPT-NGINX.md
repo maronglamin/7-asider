@@ -161,9 +161,32 @@ curl -s -o /dev/null -w "%{http_code}" https://seven-aside.phantommetrics.gm/hea
 
 You should get `200` for the last two. If the first works but the others don’t, the problem is nginx or firewall. If the first fails, start the Node backend on port 4000.
 
-### Other issues
+### Login returns 401 for everyone
 
-- **"Connection refused" to backend:** Start the Node app on port 4000 and ensure `PORT=4000` in `.env` or process manager.
+The API is reachable but rejecting credentials. On the server:
+
+```bash
+cd /var/www/7-aside/appBackend   # or your deploy path
+npx ts-node src/scripts/diagnoseAuth.ts
+```
+
+Interpretation:
+
+| Diagnostic output | Likely cause | Fix |
+|-------------------|--------------|-----|
+| `active: 0` | Wrong or empty `DATABASE_URL` | Point `.env` at the database that has your users; restart backend |
+| `with passwordHash: 0` | Users signed up with Google only | Use **Continue with Google**; add `https://7a-side.phantommetrics.gm` to Google OAuth redirect URIs (see `appFrontend/GOOGLE_OAUTH_SETUP.md`) |
+| Duplicate emails listed | Case-sensitive duplicate rows | Deploy latest backend (login picks the email/password row) and merge duplicates in Postgres |
+
+Also check backend logs for the login attempt (body is logged):
+
+```bash
+# PM2 example
+pm2 logs --lines 50 | rg login-email
+```
+
+You should see `POST /auth/login-email` with `{ email, password: '***' }` — if `email` is empty, the frontend build may be stale.
+
 - **Certbot "Failed to connect":** Ensure port 80 is open (`sudo ufw allow 80` then `sudo ufw reload` if using UFW).
 - **Certificate errors in browser:** Wait a few minutes after running certbot, clear cache, or check that the nginx config reloaded (`sudo systemctl reload nginx`).
 - **502 Bad Gateway:** Nginx can’t reach the backend. Check that the app is running: `curl -s http://127.0.0.1:4000/health`.
