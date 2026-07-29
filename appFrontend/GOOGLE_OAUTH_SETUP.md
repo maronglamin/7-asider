@@ -16,7 +16,7 @@ APIs & Services → Credentials → Create credentials → OAuth client ID.
 
 | Type | Name | Configuration |
 |------|------|---------------|
-| **Web** | 7a-side Web | Authorized JavaScript origins: `https://seven-aside.phantommetrics.gm`, `http://localhost:8081`. Authorized redirect URIs: same origins **exactly** (see below). |
+| **Web** | 7a-side Web | Authorized JavaScript origins: `https://7a-side.phantommetrics.gm`, `http://localhost:8081`. Authorized redirect URIs: same origins **exactly** (see below). The web app is served from **7a-side**, not the API host. |
 | **iOS** | 7a-side iOS | Bundle ID: `com.sevenaside.app` |
 | **Android** | 7a-side Android | Package: `com.sevenaside.app`, SHA-1 from EAS/production keystore |
 
@@ -57,7 +57,7 @@ When you tap “Continue with Google” in dev, the browser console logs:
 [Google sign-in] redirectUri = http://localhost:8081
 ```
 
-Add that **exact** URI under the Web OAuth client → **Authorized redirect URIs**. For production, add `https://seven-aside.phantommetrics.gm` (no trailing slash unless the log shows one). Google requires an exact match.
+Add that **exact** URI under the Web OAuth client → **Authorized redirect URIs**. For production web, add `https://7a-side.phantommetrics.gm` (no trailing slash unless the log shows one). Google requires an exact match.
 
 Also add the same URLs under **Authorized JavaScript origins**.
 
