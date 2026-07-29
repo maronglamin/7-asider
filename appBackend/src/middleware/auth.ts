@@ -1,8 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../db/prisma';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret_change_me';
+import { getJwtSecret } from '../config/env';
 
 export type AuthedRequest = Request & { auth?: { userId: string; token: string } };
 
@@ -11,7 +10,7 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
   const token = header.startsWith('Bearer ') ? header.slice('Bearer '.length) : undefined;
   if (!token) return res.status(401).json({ error: 'Missing bearer token' });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    const decoded = jwt.verify(token, getJwtSecret()) as any;
     if (!decoded?.userId) return res.status(401).json({ error: 'Invalid token' });
 
     const session = await prisma.session.findUnique({
@@ -22,9 +21,18 @@ export async function requireAuth(req: AuthedRequest, res: Response, next: NextF
       return res.status(401).json({ error: 'Session is no longer valid' });
     }
 
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      select: { status: true },
+    });
+    const status = (user as any)?.status;
+    if (!user || status === 'TERMINATED' || status === 'BLOCKED') {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
+
     req.auth = { userId: decoded.userId, token };
     next();
-  } catch (e: any) {
+  } catch {
     return res.status(401).json({ error: 'Invalid token' });
   }
 }
@@ -42,5 +50,3 @@ export async function requireSupadmin(req: AuthedRequest, res: Response, next: N
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
-
-

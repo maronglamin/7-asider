@@ -1,9 +1,9 @@
 import { Router, Request, Response } from 'express';
-import multer from 'multer';
 import path from 'path';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { ensureUploadDirectory, uploadPath } from '../utils/uploads';
+import { createReceiptUpload } from '../utils/multerUpload';
 import {
   authorizeEasypayApsWallet,
   cancelEasypayOrder,
@@ -19,22 +19,7 @@ const router = Router();
 
 // Uploads: receipts
 const receiptDir = ensureUploadDirectory(uploadPath('receipts'));
-const storage = multer.diskStorage({
-  destination: (_req: any, _file: any, cb: any) => {
-    try {
-      cb(null, ensureUploadDirectory(receiptDir));
-    } catch (error) {
-      cb(error as Error, receiptDir);
-    }
-  },
-  filename: (_req: any, file: any, cb: any) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '');
-    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    cb(null, `${base || 'receipt'}_${unique}${ext}`);
-  },
-});
-const upload = multer({ storage });
+const upload = createReceiptUpload(receiptDir);
 
 function imageBaseUrl(): string {
   const base = (process.env.API_BASE || '').replace(/\/$/, '');

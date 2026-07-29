@@ -63,11 +63,20 @@ export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
     if (event === 'payment.completed' && bookingId) {
       const booking = await prisma.booking.findUnique({
         where: { id: bookingId },
-        select: { id: true, paymentStatus: true, metadata: true },
+        select: { id: true, paymentStatus: true, totalAmount: true, metadata: true },
       });
-      if (booking) {
+      if (booking && booking.paymentStatus !== 'PAID') {
         const meta = (booking.metadata && typeof booking.metadata === 'object' ? booking.metadata : {}) as Record<string, unknown>;
         const easypay = { ...(typeof meta.easypay === 'object' && meta.easypay ? (meta.easypay as object) : {}) } as Record<string, unknown>;
+        const webhookAmount = body.data && typeof body.data === 'object' ? (body.data as any).amount : undefined;
+        if (webhookAmount != null && Number(webhookAmount) !== Number(booking.totalAmount)) {
+          console.warn('[webhooks/easypay-partner] amount mismatch', {
+            bookingId,
+            expected: booking.totalAmount,
+            got: webhookAmount,
+          });
+          return res.status(422).json({ error: 'Payment amount mismatch' });
+        }
         const dedupeKey = paymentId ? `${paymentId}:${event}` : null;
         const seen: string[] = Array.isArray(easypay.webhookDedupe) ? (easypay.webhookDedupe as string[]) : [];
         if (dedupeKey && seen.includes(dedupeKey)) {

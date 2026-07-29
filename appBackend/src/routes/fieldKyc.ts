@@ -1,31 +1,14 @@
 import { Router, Request, Response } from 'express';
-import multer from 'multer';
 import path from 'path';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { ensureUploadDirectory, uploadPath } from '../utils/uploads';
+import { createImageUpload } from '../utils/multerUpload';
 
 const router = Router();
 
 const uploadDir = ensureUploadDirectory(uploadPath('fields'));
-
-const storage = multer.diskStorage({
-  destination: (_req: any, _file: any, cb: any) => {
-    try {
-      cb(null, ensureUploadDirectory(uploadDir));
-    } catch (error) {
-      cb(error as Error, uploadDir);
-    }
-  },
-  filename: (_req: any, file: any, cb: any) => {
-    const ext = path.extname(file.originalname) || '.jpg';
-    const base = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '');
-    const unique = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    cb(null, `${base || 'image'}_${unique}${ext}`);
-  },
-});
-
-const upload = multer({ storage });
+const upload = createImageUpload(uploadDir);
 
 function imageBaseUrl(): string {
   const base = (process.env.API_BASE || '').replace(/\/$/, '');

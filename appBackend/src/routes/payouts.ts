@@ -117,12 +117,15 @@ router.delete('/wallets/:id', requireAuth, async (req: AuthedRequest, res: Respo
   }
 });
 
-// GET /payouts/owner/:ownerId - fetch both banks and wallets for a given owner (authenticated)
+// GET /payouts/owner/:ownerId - owner-only payout accounts (not exposed to other users)
 router.get('/owner/:ownerId', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const ownerId = req.params.ownerId;
+    const callerId = req.auth!.userId;
     if (!ownerId) return res.status(400).json({ error: 'ownerId is required' });
-    // We don't expose sensitive data beyond numbers and labels. No extra PII.
+    if (ownerId !== callerId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const [banks, wallets] = await Promise.all([
       (prisma as any).bankAccount.findMany({
         where: { userId: ownerId },
