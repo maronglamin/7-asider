@@ -27,15 +27,16 @@ export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
     (req.headers['x-webhook-signature'] as string | undefined);
   const verify = verifyEasypayPartnerWebhook(rawBuf, sig, secret);
   if (!verify.ok) {
+    const { reason, expectedSignaturePrefix } = verify;
     console.warn('[webhooks/easypay-partner] invalid signature', {
-      reason: verify.reason,
+      reason,
       bodyBytes: rawBuf.length,
       contentType: req.headers['content-type'] || null,
       signaturePrefix: sig?.slice(0, 12) || null,
-      expectedSignaturePrefix: verify.ok ? null : verify.expectedSignaturePrefix ?? null,
+      expectedSignaturePrefix: expectedSignaturePrefix ?? null,
       signatureHexLen: sig?.replace(/^sha256=/i, '').trim().length ?? 0,
       hint:
-        verify.reason === 'digest_mismatch'
+        reason === 'digest_mismatch'
           ? 'INTERNAL_PARTNER_WEBHOOK_SECRET on 7-aside must exactly match directPay (not INTERNAL_PARTNER_API_SECRET)'
           : undefined,
     });

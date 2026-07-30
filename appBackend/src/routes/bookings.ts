@@ -359,27 +359,28 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
       nextCursor = results[results.length - 1].id;
       items = results.slice(0, limit);
     }
-    // Map response to include hasReceipt and strip prisma _count helper
-    const mapped = [];
-    for (const b of items) {
-      let paymentStatus = b.paymentStatus;
-      if (String(paymentStatus || '').toUpperCase() !== 'PAID') {
-        const syncResult = await syncBookingPaymentFromEasypay({
-          id: b.id,
-          paymentStatus: b.paymentStatus,
-          totalAmount: b.totalAmount,
-          currency: b.currency,
-          metadata: b.metadata,
-        });
-        if (syncResult === 'paid') paymentStatus = 'PAID';
-      }
-      const { _count, ...rest } = b;
-      mapped.push({
-        ...rest,
-        paymentStatus,
-        hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
-      });
-    }
+    // Map response; sync unpaid rows with directPay so PAID shows without opening pay sheet.
+    const mapped = await Promise.all(
+      items.map(async (b: any) => {
+        let paymentStatus = b.paymentStatus;
+        if (String(paymentStatus || '').toUpperCase() !== 'PAID') {
+          const syncResult = await syncBookingPaymentFromEasypay({
+            id: b.id,
+            paymentStatus: b.paymentStatus,
+            totalAmount: b.totalAmount,
+            currency: b.currency,
+            metadata: b.metadata,
+          });
+          if (syncResult === 'paid') paymentStatus = 'PAID';
+        }
+        const { _count, ...rest } = b;
+        return {
+          ...rest,
+          paymentStatus,
+          hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+        };
+      }),
+    );
     res.json({ items: mapped, nextCursor });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch bookings' });

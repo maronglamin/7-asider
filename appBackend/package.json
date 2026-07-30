@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node --files src/index.ts",
-    "build": "tsc -p .",
+    "build": "npx tsc -p .",
     "start": "node dist/index.js",
     "db:create": "ts-node src/scripts/createDb.ts",
     "db:migrate": "prisma migrate dev --name init",

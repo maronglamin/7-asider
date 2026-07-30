@@ -138,6 +138,7 @@ export async function markBookingPaidFromEasypay(
 export function isEasypayPartnerAlreadyPaidMessage(message: unknown): boolean {
   return /already paid|partner.*booking.*paid|partnerexternalbookingid.*paid/i.test(String(message || ''));
 }
+
 export async function syncBookingPaymentFromEasypay(booking: {
   id: string;
   paymentStatus: string;
