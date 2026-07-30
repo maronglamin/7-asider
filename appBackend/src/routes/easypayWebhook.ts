@@ -32,7 +32,12 @@ export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
       bodyBytes: rawBuf.length,
       contentType: req.headers['content-type'] || null,
       signaturePrefix: sig?.slice(0, 12) || null,
+      expectedSignaturePrefix: verify.ok ? null : verify.expectedSignaturePrefix ?? null,
       signatureHexLen: sig?.replace(/^sha256=/i, '').trim().length ?? 0,
+      hint:
+        verify.reason === 'digest_mismatch'
+          ? 'INTERNAL_PARTNER_WEBHOOK_SECRET on 7-aside must exactly match directPay (not INTERNAL_PARTNER_API_SECRET)'
+          : undefined,
     });
     return res.status(401).json({ error: 'Invalid signature' });
   }

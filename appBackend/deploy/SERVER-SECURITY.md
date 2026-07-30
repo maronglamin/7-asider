@@ -294,6 +294,98 @@ curl -s https://seven-aside.phantommetrics.gm/health
 # expect: {"ok":true,...}
 ```
 
+### Frontend `7a-side.phantommetrics.gm` returns nginx 500 (all pages)
+
+The **API can be fine** while the **web app** is broken — they use different nginx `server` blocks on the same host.
+
+```bash
+curl -s -o /dev/null -w "api:%{http_code}\n" https://seven-aside.phantommetrics.gm/health
+curl -s -o /dev/null -w "web:%{http_code}\n" https://7a-side.phantommetrics.gm/
+sudo nginx -t
+sudo tail -30 /var/log/nginx/error.log
+```
+
+#### `rewrite or internal redirection cycle ... /index.html`
+
+This is **not an attack** — any `GET /` triggers it when the frontend build is missing or nginx `root` is wrong.
+
+Nginx runs `try_files ... /index.html`, cannot find `index.html`, redirects internally to `/index.html` again, and loops until 500.
+
+**Fix:**
+
+```bash
+ls -la /var/www/7-aside/appFrontend/dist/index.html
+# If "No such file":
+cd /var/www/7-aside/appFrontend
+git pull
+npm ci
+npm run build:web
+sudo chown -R www-data:www-data dist
+sudo nginx -t && sudo systemctl reload nginx
+curl -s -o /dev/null -w "web:%{http_code}\n" https://7a-side.phantommetrics.gm/
+```
+
+Update the web site config to the safer SPA fallback in `appFrontend/deploy/nginx/seven-aside-web.conf` (`@spa_fallback`) so a missing build returns **404** instead of a redirect loop.
+
+Other common fixes:
+
+1. **`limit_req zone=...` without a zone** in `/etc/nginx/nginx.conf` → comment out `limit_req` in the **web** site config, then `sudo nginx -t && sudo systemctl reload nginx`.
+2. **Missing build** — `ls /var/www/7-aside/appFrontend/dist/index.html`; if missing: `cd /var/www/7-aside/appFrontend && npm run build:web`.
+3. **Broken SSL block** after certbot — `sudo certbot certificates`; renew or re-run `sudo certbot --nginx -d 7a-side.phantommetrics.gm`.
+
+Expect: `api:200` and `web:200` (or `web:304`).
+
+### directPay `ECONNREFUSED 64.227.124.216:443` from 7-aside backend
+
+The backend on **165.22.77.92** cannot reach **dpay.phantommetrics.gm** (64.227.124.216). External browsers may still work if the directPay droplet firewall allows the public but blocks the 7-aside server IP.
+
+On the **directPay** droplet:
+
+```bash
+sudo ufw status
+sudo ss -lntp | rg ':443'
+curl -s https://dpay.phantommetrics.gm/health
+```
+
+Allow HTTPS from the 7-aside server IP if UFW is restrictive:
+
+```bash
+sudo ufw allow from 165.22.77.92 to any port 443 proto tcp comment '7-aside backend'
+```
+
+On **7-aside**, test from the server (not your laptop):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" https://dpay.phantommetrics.gm/health
+```
+
+### Webhook `digest_mismatch` (body arrives, signature wrong)
+
+Webhooks are reaching 7-aside (`bodyBytes` > 0) but `INTERNAL_PARTNER_WEBHOOK_SECRET` does **not** match what directPay used to sign.
+
+**Regenerate and sync (both servers must use the identical new value):**
+
+```bash
+# On your dev machine or either server:
+cd appBackend && npm run generate:webhook-secret
+# Or: openssl rand -hex 32
+```
+
+1. **directPay** `backend/.env` — set `INTERNAL_PARTNER_WEBHOOK_SECRET=<new value>` (not `INTERNAL_PARTNER_API_SECRET`).
+2. **7-aside** `appBackend/.env` — same `INTERNAL_PARTNER_WEBHOOK_SECRET=<new value>`.
+3. Confirm directPay webhook URL: `INTERNAL_PARTNER_WEBHOOK_URL=https://seven-aside.phantommetrics.gm/webhooks/easypay-partner`
+4. Restart **both** apps with env reload:
+   ```bash
+   pm2 restart all --update-env
+   ```
+5. Test signature locally on 7-aside:
+   ```bash
+   cd appBackend && npm run diagnose:easypay-webhook
+   ```
+6. Trigger a test payment or replay a failed webhook job on directPay.
+
+Compare prefixes in logs (`signaturePrefix` vs `expectedSignaturePrefix`) — they should match when the secret is correct.
+
 ---
 
 If you confirm compromise: snapshot disk for forensics, rotate all secrets, rebuild from clean image, restore DB from last known-good backup only after reviewing for tampering.

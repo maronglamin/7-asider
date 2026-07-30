@@ -2,7 +2,11 @@ import crypto from 'node:crypto';
 
 export type EasypayWebhookVerifyResult =
   | { ok: true }
-  | { ok: false; reason: 'empty_body' | 'missing_signature' | 'digest_mismatch' | 'invalid_signature_format' };
+  | {
+      ok: false;
+      reason: 'empty_body' | 'missing_signature' | 'digest_mismatch' | 'invalid_signature_format';
+      expectedSignaturePrefix?: string;
+    };
 
 function readRawBody(rawBody: string | Buffer | undefined | null): Buffer {
   if (Buffer.isBuffer(rawBody)) return rawBody;
@@ -46,7 +50,11 @@ export function verifyEasypayPartnerWebhook(
   }
   const expectedHex = crypto.createHmac('sha256', secret).update(bodyBuf).digest('hex');
   if (!safeHexEqual(expectedHex, gotHex)) {
-    return { ok: false, reason: 'digest_mismatch' };
+    return {
+      ok: false,
+      reason: 'digest_mismatch',
+      expectedSignaturePrefix: `sha256=${expectedHex.slice(0, 6)}`,
+    };
   }
   return { ok: true };
 }

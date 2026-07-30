@@ -10,6 +10,7 @@
     "db:migrate": "prisma migrate dev --name init",
     "db:generate": "prisma generate",
     "diagnose:easypay-webhook": "ts-node --files src/scripts/diagnoseEasypayWebhook.ts",
+    "generate:webhook-secret": "ts-node --files src/scripts/generateWebhookSecret.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

@@ -44,7 +44,24 @@ async function partnerJson<T>(
     headers['Content-Type'] = 'application/json';
     body = JSON.stringify(init.body);
   }
-  const res = await fetch(url, { method, headers, body });
+  const controller = new AbortController();
+  const timeoutMs = Number(process.env.EASYPAY_PARTNER_FETCH_TIMEOUT_MS || 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let res: Awaited<ReturnType<typeof fetch>>;
+  try {
+    res = await fetch(url, { method, headers, body, signal: controller.signal as any });
+  } catch (e: any) {
+    if (e?.name === 'AbortError') {
+      throw Object.assign(new Error(`Easypay ${method} ${path} timed out after ${timeoutMs}ms`), { code: 'EASYPAY_TIMEOUT' });
+    }
+    const msg = String(e?.message || e);
+    if (/ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT/i.test(msg)) {
+      throw Object.assign(new Error(`Easypay API unreachable at ${baseUrl} (${msg})`), { code: 'EASYPAY_UNREACHABLE' });
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
+  }
   const text = await res.text();
   let json: any = {};
   try {

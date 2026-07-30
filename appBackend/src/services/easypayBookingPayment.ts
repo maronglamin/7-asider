@@ -3,6 +3,19 @@ import { createEasypayOrder, getEasypayOrder, getEasypayPartnerConfig, type Easy
 
 type JsonRecord = Record<string, unknown>;
 
+/** Avoid hammering directPay when it is down (ECONNREFUSED from this server). */
+let easypaySyncPausedUntilMs = 0;
+const EASYPAY_SYNC_PAUSE_MS = 60_000;
+
+function easypaySyncPaused(): boolean {
+  return Date.now() < easypaySyncPausedUntilMs;
+}
+
+function pauseEasypaySync(reason: string): void {
+  easypaySyncPausedUntilMs = Date.now() + EASYPAY_SYNC_PAUSE_MS;
+  console.warn('[easypay sync] paused', { reason, resumeInSec: EASYPAY_SYNC_PAUSE_MS / 1000 });
+}
+
 function asRecord(value: unknown): JsonRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as JsonRecord) : null;
 }
@@ -132,6 +145,7 @@ export async function syncBookingPaymentFromEasypay(booking: {
 }): Promise<'paid' | 'unchanged' | 'skipped'> {
   if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') return 'unchanged';
   if (!getEasypayPartnerConfig().configured) return 'skipped';
+  if (easypaySyncPaused()) return 'skipped';
 
   const ep = easypayMetaFromBooking(booking.metadata);
   const businessId = pickString(ep, ['businessId']);
@@ -165,7 +179,12 @@ export async function syncBookingPaymentFromEasypay(booking: {
     });
     return result === 'paid' ? 'paid' : 'unchanged';
   } catch (e: any) {
-    console.warn('[easypay sync] failed', { bookingId: booking.id, message: e?.message || e });
+    const message = String(e?.message || e);
+    if (e?.code === 'EASYPAY_UNREACHABLE' || /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT/i.test(message)) {
+      pauseEasypaySync(message);
+    } else {
+      console.warn('[easypay sync] failed', { bookingId: booking.id, message });
+    }
     return 'skipped';
   }
 }
