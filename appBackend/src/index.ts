@@ -66,9 +66,16 @@ app.use(
 );
 
 // Easypay → 7-aside webhooks require raw body bytes for HMAC (must run before express.json())
-app.post('/webhooks/easypay-partner', express.raw({ type: 'application/json' }), (req: Request, res: Response) => {
-  void handleEasypayPartnerWebhook(req, res);
-});
+app.post(
+  '/webhooks/easypay-partner',
+  express.raw({
+    type: () => true,
+    limit: '1mb',
+  }),
+  (req: Request, res: Response) => {
+    void handleEasypayPartnerWebhook(req, res);
+  },
+);
 app.use(express.json({ limit: '1mb' }));
 
 if (process.env.NODE_ENV !== 'production') {

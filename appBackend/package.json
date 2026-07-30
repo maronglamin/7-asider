@@ -9,6 +9,7 @@
     "db:create": "ts-node src/scripts/createDb.ts",
     "db:migrate": "prisma migrate dev --name init",
     "db:generate": "prisma generate",
+    "diagnose:easypay-webhook": "ts-node --files src/scripts/diagnoseEasypayWebhook.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

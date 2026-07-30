@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import crypto from 'node:crypto';
 import {
   markBookingPaidFromEasypay,
   normalizePartnerWebhookEvent,
@@ -7,19 +6,12 @@ import {
   pickPartnerWebhookBookingId,
   pickPartnerWebhookPaymentId,
 } from '../services/easypayBookingPayment';
+import { verifyEasypayPartnerWebhook } from '../utils/easypayWebhookVerify';
 
-function verifyEasypayPartnerWebhook(
-  rawBody: string,
-  signatureHeader: string | undefined,
-  secret: string,
-): boolean {
-  const expected = `sha256=${crypto.createHmac('sha256', secret).update(rawBody, 'utf8').digest('hex')}`;
-  const got = (signatureHeader ?? '').trim();
-  try {
-    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(got));
-  } catch {
-    return false;
-  }
+function readWebhookRawBody(req: Request): Buffer {
+  if (Buffer.isBuffer(req.body)) return req.body;
+  if (typeof req.body === 'string') return Buffer.from(req.body, 'utf8');
+  return Buffer.alloc(0);
 }
 
 export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
@@ -28,15 +20,20 @@ export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
     console.warn('[webhooks/easypay-partner] INTERNAL_PARTNER_WEBHOOK_SECRET not set');
     return res.status(503).json({ error: 'Webhook verifier not configured' });
   }
-  const raw =
-    typeof req.body === 'string'
-      ? req.body
-      : Buffer.isBuffer(req.body)
-        ? req.body.toString('utf8')
-        : '';
-  const sig = req.headers['x-easypay-signature'] as string | undefined;
-  if (!verifyEasypayPartnerWebhook(raw, sig, secret)) {
-    console.warn('[webhooks/easypay-partner] invalid signature');
+  const rawBuf = readWebhookRawBody(req);
+  const raw = rawBuf.toString('utf8');
+  const sig =
+    (req.headers['x-easypay-signature'] as string | undefined) ||
+    (req.headers['x-webhook-signature'] as string | undefined);
+  const verify = verifyEasypayPartnerWebhook(rawBuf, sig, secret);
+  if (!verify.ok) {
+    console.warn('[webhooks/easypay-partner] invalid signature', {
+      reason: verify.reason,
+      bodyBytes: rawBuf.length,
+      contentType: req.headers['content-type'] || null,
+      signaturePrefix: sig?.slice(0, 12) || null,
+      signatureHexLen: sig?.replace(/^sha256=/i, '').trim().length ?? 0,
+    });
     return res.status(401).json({ error: 'Invalid signature' });
   }
   let body: Record<string, unknown> = {};
