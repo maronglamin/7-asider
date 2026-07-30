@@ -337,27 +337,47 @@ Expect: `api:200` and `web:200` (or `web:304`).
 
 ### directPay `ECONNREFUSED 64.227.124.216:443` from 7-aside backend
 
-The backend on **165.22.77.92** cannot reach **dpay.phantommetrics.gm** (64.227.124.216). External browsers may still work if the directPay droplet firewall allows the public but blocks the 7-aside server IP.
-
-On the **directPay** droplet:
+The backend on **165.22.77.92** cannot open TCP to **dpay.phantommetrics.gm** (64.227.124.216). Your laptop may still reach directPay — test **from the 7-aside server**:
 
 ```bash
-sudo ufw status
-sudo ss -lntp | rg ':443'
-curl -s https://dpay.phantommetrics.gm/health
+cd /var/www/7-aside/appBackend
+npm run diagnose:easypay-connectivity
+# or manually:
+curl -4 -v --connect-timeout 10 https://dpay.phantommetrics.gm/health
+nc -zv 64.227.124.216 443
 ```
 
-Allow HTTPS from the 7-aside server IP if UFW is restrictive:
+| `curl` from 7-aside server | Cause |
+|----------------------------|--------|
+| Works | Wrong `EASYPAY_API_BASE_URL` in PM2 env — run `pm2 restart 7-aside-backend --update-env` |
+| `Connection refused` | directPay not listening on :443, or firewall blocks **165.22.77.92** |
+
+**On directPay droplet (64.227.124.216):**
+
+```bash
+sudo ss -lntp | rg ':443'
+sudo ufw status verbose
+curl -s http://127.0.0.1:4000/health   # or whatever port the directPay API uses
+```
+
+Allow the 7-aside server IP:
 
 ```bash
 sudo ufw allow from 165.22.77.92 to any port 443 proto tcp comment '7-aside backend'
+sudo ufw reload
 ```
 
-On **7-aside**, test from the server (not your laptop):
+**DigitalOcean cloud firewall** (Networking → Firewalls on the directPay droplet): add inbound rule **HTTPS 443** from source `165.22.77.92` (or from all IPv4 if you accept public API).
+
+**On 7-aside** confirm `.env`:
 
 ```bash
-curl -s -o /dev/null -w "%{http_code}\n" https://dpay.phantommetrics.gm/health
+EASYPAY_API_BASE_URL=https://dpay.phantommetrics.gm
 ```
+
+Not `http://localhost`, not `http://64.227.124.216:4000` unless nginx proxies that port on 443.
+
+After any `.env` change: `pm2 restart 7-aside-backend --update-env`
 
 ### Webhook `digest_mismatch` (body arrives, signature wrong)
 

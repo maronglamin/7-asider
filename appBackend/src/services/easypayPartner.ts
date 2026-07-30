@@ -1,4 +1,8 @@
 import fetch from 'node-fetch';
+import https from 'node:https';
+
+/** Prefer IPv4 — avoids broken IPv6 routes on some cloud VMs (ECONNREFUSED to public IPv4). */
+const easypayHttpsAgent = new https.Agent({ keepAlive: true, family: 4 });
 
 export type EasypayPartnerConfig = {
   baseUrl: string;
@@ -49,7 +53,13 @@ async function partnerJson<T>(
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   let res: Awaited<ReturnType<typeof fetch>>;
   try {
-    res = await fetch(url, { method, headers, body, signal: controller.signal as any });
+    res = await fetch(url, {
+      method,
+      headers,
+      body,
+      signal: controller.signal as any,
+      agent: (url.startsWith('https:') ? easypayHttpsAgent : undefined) as any,
+    });
   } catch (e: any) {
     if (e?.name === 'AbortError') {
       throw Object.assign(new Error(`Easypay ${method} ${path} timed out after ${timeoutMs}ms`), { code: 'EASYPAY_TIMEOUT' });
@@ -446,6 +456,7 @@ export async function cancelEasypayOrder(businessId: string, orderId: string) {
   const res = await fetch(url, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${apiSecret}` },
+    agent: easypayHttpsAgent as any,
   });
   if (res.status !== 204 && res.status !== 404) {
     const t = await res.text().catch(() => '');
