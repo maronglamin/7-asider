@@ -16,6 +16,15 @@ export function getEasypayPartnerConfig(): EasypayPartnerConfig {
   };
 }
 
+/** HTTPS URL directPay should POST partner webhooks to (also sent on tenant provision). */
+export function getEasypayPartnerWebhookUrl(): string | undefined {
+  const explicit = (process.env.INTERNAL_PARTNER_WEBHOOK_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  const apiBase = (process.env.API_BASE || '').trim().replace(/\/$/, '');
+  if (apiBase) return `${apiBase}/webhooks/easypay-partner`;
+  return undefined;
+}
+
 async function partnerJson<T>(
   path: string,
   init: { method?: string; body?: unknown } = {},
@@ -108,10 +117,56 @@ export async function provisionEasypayTenant(input: {
   return json.data;
 }
 
+export type EasypayPartnerOrder = {
+  id: string;
+  publicCode: string;
+  status: string;
+  total: number;
+  currency: string;
+  partnerExternalBookingId: string | null;
+  paymentStatus?: string;
+  paymentId?: unknown;
+  [key: string]: unknown;
+};
+
+function normalizeEasypayOrder(raw: unknown): EasypayPartnerOrder {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Easypay order: missing order in response');
+  }
+  const ro = raw as Record<string, unknown>;
+  const idVal = ro.id ?? ro.orderId ?? (ro as any).order_id;
+  if (idVal == null || String(idVal).trim() === '') {
+    throw new Error(`Easypay order: missing order id in response: ${JSON.stringify(raw).slice(0, 400)}`);
+  }
+  return {
+    ...ro,
+    id: String(idVal),
+    publicCode: String(ro.publicCode ?? ro.public_code ?? ''),
+    status: String(ro.status ?? ro.orderStatus ?? ro.order_status ?? ''),
+    total: Number(ro.total ?? ro.amount ?? ro.amountGmd ?? ro.amount_gmd ?? 0),
+    currency: String(ro.currency ?? 'GMD'),
+    partnerExternalBookingId: (ro.partnerExternalBookingId ?? ro.partner_external_booking_id ?? null) as
+      | string
+      | null,
+    paymentStatus: String(ro.paymentStatus ?? ro.payment_status ?? ''),
+    paymentId: ro.paymentId ?? ro.payment_id ?? null,
+  };
+}
+
+export async function getEasypayOrder(businessId: string, orderId: string): Promise<EasypayPartnerOrder> {
+  const json = await partnerJson<Record<string, unknown>>(
+    `/businesses/${encodeURIComponent(businessId)}/orders/${encodeURIComponent(orderId)}`,
+    { method: 'GET' },
+  );
+  const rawOrder =
+    (json?.data && typeof json.data === 'object' && ((json.data as any).order ?? json.data)) || json?.order || json?.data;
+  return normalizeEasypayOrder(rawOrder);
+}
+
 export async function createEasypayOrder(
   businessId: string,
   input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
-) {
+): Promise<EasypayPartnerOrder> {
   const json = await partnerJson<{
     data?: {
       order?: Record<string, unknown>;
@@ -119,23 +174,7 @@ export async function createEasypayOrder(
   }>(`/businesses/${encodeURIComponent(businessId)}/orders`, { method: 'POST', body: input });
   const rawOrder =
     json?.data?.order ?? (json as any)?.data?.order ?? (json as any)?.data;
-  if (!rawOrder || typeof rawOrder !== 'object') {
-    throw new Error(`Easypay create order: missing order in response: ${JSON.stringify(json).slice(0, 400)}`);
-  }
-  const ro = rawOrder as Record<string, unknown>;
-  const idVal = ro.id ?? ro.orderId ?? (ro as any).order_id;
-  if (idVal == null || String(idVal).trim() === '') {
-    throw new Error(`Easypay create order: missing order id in response: ${JSON.stringify(json).slice(0, 400)}`);
-  }
-  return {
-    ...ro,
-    id: String(idVal),
-    publicCode: String(ro.publicCode ?? ro.public_code ?? ''),
-    status: String(ro.status ?? ''),
-    total: Number(ro.total ?? 0),
-    currency: String(ro.currency ?? 'GMD'),
-    partnerExternalBookingId: (ro.partnerExternalBookingId ?? ro.partner_external_booking_id ?? null) as string | null,
-  };
+  return normalizeEasypayOrder(rawOrder);
 }
 
 function pickString(obj: Record<string, unknown>, keys: string[]): string {

@@ -14,6 +14,7 @@ import {
   easypayGatewayCodeNeedsPayerPhone,
   startEasypayWalletCheckout,
 } from '../services/easypayPartner';
+import { syncBookingPaymentFromEasypay } from '../services/easypayBookingPayment';
 
 const router = Router();
 
@@ -738,8 +739,46 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
     const isOwner = booking.field.userId === userId;
     const isBooker = booking.userId === userId;
     if (!isOwner && !isBooker) return res.status(403).json({ error: 'Not allowed' });
-    const latest = booking.PaymentReceipt?.[0] || null;
-    const { _count, PaymentReceipt, ...rest } = booking;
+
+    // Fallback when directPay → 7-aside webhooks are delayed or misconfigured (common after Wave checkout).
+    let paymentBooking = booking;
+    if (String(booking.paymentStatus || '').toUpperCase() !== 'PAID') {
+      const syncResult = await syncBookingPaymentFromEasypay({
+        id: booking.id,
+        paymentStatus: booking.paymentStatus,
+        totalAmount: booking.totalAmount,
+        currency: booking.currency,
+        metadata: booking.metadata,
+      });
+      if (syncResult === 'paid') {
+        paymentBooking = await (prisma as any).booking.findUnique({
+          where: { id },
+          include: {
+            field: {
+              select: {
+                id: true,
+                name: true,
+                address: true,
+                city: true,
+                userId: true,
+                status: true,
+                rejectionReason: true,
+                suspensionReason: true,
+                pricePerHour: true,
+                images: { select: { id: true, url: true, order: true }, orderBy: { order: 'asc' } },
+              },
+            },
+            user: { select: { id: true, email: true, name: true } },
+            _count: { select: { PaymentReceipt: true } },
+            PaymentReceipt: { select: { imageUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+          },
+        });
+        if (!paymentBooking) paymentBooking = booking;
+      }
+    }
+
+    const latest = paymentBooking.PaymentReceipt?.[0] || null;
+    const { _count, PaymentReceipt, ...rest } = paymentBooking;
     res.json({
       booking: {
         ...rest,

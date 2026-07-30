@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
-import { getEasypayPartnerConfig, provisionEasypayTenant } from '../services/easypayPartner';
+import { getEasypayPartnerConfig, getEasypayPartnerWebhookUrl, provisionEasypayTenant } from '../services/easypayPartner';
 
 const router = Router();
 
@@ -92,6 +92,7 @@ router.post('/onboarding', requireAuth, async (req: AuthedRequest, res: Response
     }
     const businessName = easypayBusinessNameFromProfile(user);
     const ownerName = (user.name || user.email.split('@')[0] || 'Owner').trim();
+    const webhookUrl = getEasypayPartnerWebhookUrl();
     const data = await provisionEasypayTenant({
       externalUserId: userId,
       ownerEmail: user.email,
@@ -99,6 +100,7 @@ router.post('/onboarding', requireAuth, async (req: AuthedRequest, res: Response
       businessName,
       slug: slugHint(userId, user.email),
       industry: 'sports-venue',
+      ...(webhookUrl ? { webhookUrl } : {}),
     });
     await prisma.user.update({
       where: { id: userId },
