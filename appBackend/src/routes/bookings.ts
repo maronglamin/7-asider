@@ -14,7 +14,7 @@ import {
   easypayGatewayCodeNeedsPayerPhone,
   startEasypayWalletCheckout,
 } from '../services/easypayPartner';
-import { syncBookingPaymentFromEasypay } from '../services/easypayBookingPayment';
+import { syncBookingPaymentFromEasypay, isEasypayPartnerAlreadyPaidMessage, markBookingPaidFromEasypay } from '../services/easypayBookingPayment';
 
 const router = Router();
 
@@ -360,10 +360,26 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
       items = results.slice(0, limit);
     }
     // Map response to include hasReceipt and strip prisma _count helper
-    const mapped = items.map((b: any) => {
+    const mapped = [];
+    for (const b of items) {
+      let paymentStatus = b.paymentStatus;
+      if (String(paymentStatus || '').toUpperCase() !== 'PAID') {
+        const syncResult = await syncBookingPaymentFromEasypay({
+          id: b.id,
+          paymentStatus: b.paymentStatus,
+          totalAmount: b.totalAmount,
+          currency: b.currency,
+          metadata: b.metadata,
+        });
+        if (syncResult === 'paid') paymentStatus = 'PAID';
+      }
       const { _count, ...rest } = b;
-      return { ...rest, hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0) };
-    });
+      mapped.push({
+        ...rest,
+        paymentStatus,
+        hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+      });
+    }
     res.json({ items: mapped, nextCursor });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch bookings' });
@@ -856,8 +872,27 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       },
     });
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
-    if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
-      return res.status(400).json({ error: 'This booking is already paid.' });
+    if (String(booking.paymentStatus || '').toUpperCase() !== 'PAID') {
+      const syncResult = await syncBookingPaymentFromEasypay({
+        id: booking.id,
+        paymentStatus: booking.paymentStatus,
+        totalAmount: booking.totalAmount,
+        currency: booking.currency,
+        metadata: booking.metadata,
+      });
+      if (syncResult === 'paid') {
+        return res.status(400).json({
+          error: 'This booking is already paid.',
+          alreadyPaid: true,
+          paymentStatus: 'PAID',
+        });
+      }
+    } else {
+      return res.status(400).json({
+        error: 'This booking is already paid.',
+        alreadyPaid: true,
+        paymentStatus: 'PAID',
+      });
     }
     const owner = await prisma.user.findUnique({
       where: { id: booking.field.userId },
@@ -910,8 +945,24 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
         : {}),
     });
   } catch (e: any) {
-    console.error('[POST /bookings/:id/easypay/prepare]', e?.message || e);
-    res.status(502).json({ error: e?.message || 'directPay prepare failed' });
+    const msg = e?.message || 'directPay prepare failed';
+    if (isEasypayPartnerAlreadyPaidMessage(msg)) {
+      try {
+        await markBookingPaidFromEasypay(req.params.id, {
+          source: 'sync',
+          event: 'payment.completed',
+        });
+      } catch (markErr: any) {
+        console.warn('[POST /bookings/:id/easypay/prepare] mark paid after partner already-paid', markErr?.message || markErr);
+      }
+      return res.status(400).json({
+        error: 'This booking is already paid.',
+        alreadyPaid: true,
+        paymentStatus: 'PAID',
+      });
+    }
+    console.error('[POST /bookings/:id/easypay/prepare]', msg, e?.body || '');
+    res.status(502).json({ error: msg });
   }
 });
 

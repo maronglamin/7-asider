@@ -5,6 +5,14 @@ export const EASYPAY_OWNER_PAYMENT_NOT_READY =
 export const EASYPAY_SERVER_NOT_CONFIGURED =
   'Online payment is not available on the service right now. Please try again later.';
 
+export function isBookingPaid(paymentStatus: unknown): boolean {
+  return String(paymentStatus || '').toUpperCase() === 'PAID';
+}
+
+export function isEasypayAlreadyPaidMessage(rawMessage: string | null | undefined): boolean {
+  return /already paid|partner.*booking.*paid/i.test(String(rawMessage || ''));
+}
+
 /** Maps directPay/Easypay prepare API errors to short, non-technical text for the pay sheet. */
 export function friendlyEasypayPrepareError(rawMessage: string | null | undefined): string {
   const m = String(rawMessage || '').trim();

@@ -135,7 +135,9 @@ export async function markBookingPaidFromEasypay(
   return 'paid';
 }
 
-/** Pull order status from directPay when inbound webhooks were missed (e.g. Wave checkout). */
+export function isEasypayPartnerAlreadyPaidMessage(message: unknown): boolean {
+  return /already paid|partner.*booking.*paid|partnerexternalbookingid.*paid/i.test(String(message || ''));
+}
 export async function syncBookingPaymentFromEasypay(booking: {
   id: string;
   paymentStatus: string;

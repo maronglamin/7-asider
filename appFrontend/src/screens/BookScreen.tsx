@@ -33,6 +33,8 @@ import {
   friendlyEasypayActionError,
   friendlyEasypayPrepareError,
   friendlyEasypayWalletError,
+  isBookingPaid,
+  isEasypayAlreadyPaidMessage,
 } from '../utils/easypayBookerMessages';
 
 const easypayMark = require('../../assets/easypay_logo_file2.jpeg');
@@ -122,7 +124,10 @@ export function BookScreen({ navigation }: BookScreenProps) {
               : it,
           ),
         );
-        if (ps === 'PAID') clearPayPoll();
+        if (ps === 'PAID') {
+          clearPayPoll();
+          return;
+        }
       } catch {
         /* ignore transient errors */
       }
@@ -189,6 +194,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
     wallets: { gatewayId: string; code: string; name: string; checkoutAdapter: string; hasStoredPayerPhone: boolean }[];
   };
 
+  /** Mark one booking (or all matching id) as PAID in the list. */
+  const markItemPaid = (bookingId: string) => {
+    setItems((prev) =>
+      prev.map((it) => (it.id === bookingId ? { ...it, paymentStatus: 'PAID' } : it)),
+    );
+  };
+
   /** Re-calls POST …/easypay/prepare (idempotent order + fresh wallet list from Easypay). */
   const prepareEasypayCheckout = async (bookingId: string, mode: 'open' | 'refresh') => {
     if (!token) return;
@@ -209,6 +221,13 @@ export function BookScreen({ navigation }: BookScreenProps) {
       setEasypayWallets(Array.isArray(res.wallets) ? res.wallets : []);
     } catch (e: any) {
       const msg = e?.message || 'Could not load directPay checkout.';
+      if (isEasypayAlreadyPaidMessage(msg)) {
+        markItemPaid(bookingId);
+        setPayVisible(false);
+        clearApsCheckout();
+        setPrepareError(null);
+        return;
+      }
       const friendly = friendlyEasypayPrepareError(msg);
       if (mode === 'refresh') {
         setPrepareError(friendly);
@@ -226,6 +245,10 @@ export function BookScreen({ navigation }: BookScreenProps) {
   const openEasypayPay = async (b: any) => {
     if (!token) {
       Alert.alert('Sign in required', 'Please sign in to pay for this booking.');
+      return;
+    }
+    if (isBookingPaid(b.paymentStatus)) {
+      markItemPaid(b.id);
       return;
     }
     clearApsCheckout();
@@ -478,7 +501,7 @@ export function BookScreen({ navigation }: BookScreenProps) {
                       <View style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd' }}>
                         <Text style={{ color: '#075985', fontWeight: '700', fontSize: 13 }}>Completed</Text>
                       </View>
-                    ) : String(b.paymentStatus || '').toUpperCase() === 'PAID' ? (
+                    ) : isBookingPaid(b.paymentStatus) ? (
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8 }}>
                         <CheckCircle size={16} color="#166534" />
                         <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
