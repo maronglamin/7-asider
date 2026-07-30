@@ -136,10 +136,12 @@ After pulling code with security fixes:
 
 ```bash
 cd /var/www/7-aside/appBackend
-npm ci
+npm ci          # do NOT use --omit=dev before build
 npm run build
 pm2 restart all   # or your process manager
 ```
+
+`typescript` and `@types/*` are in **dependencies** so production `npm ci` still compiles. If you previously ran `npm ci --omit=dev`, run plain `npm ci` once to restore type packages.
 
 Required env vars (see `.env.example`):
 
