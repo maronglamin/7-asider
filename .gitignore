@@ -58,5 +58,7 @@ prisma/dev.db-journal
 # Logs
 logs/
 *.log
+appBackend/depl
 
-
+# Deployment
+appBackend/deploy/

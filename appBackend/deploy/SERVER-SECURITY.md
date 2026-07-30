@@ -13,6 +13,7 @@ Use this after any suspected incident or when hardening production.
 
 **Investigate further if you see any of:**
 
+- **`Accepted password for root`** from an IP you do not recognize (see [Block a hostile IP](#block-a-hostile-ip) below)
 - New users in `/root/.ssh/authorized_keys` or `/home/*/.ssh/authorized_keys` you did not add
 - Unknown cron jobs: `sudo crontab -l -u root` and `/etc/cron.d/*`
 - Unexpected processes: `ps aux | rg -i 'miner|xmr|kinsing|\.sh'`
@@ -22,7 +23,62 @@ Use this after any suspected incident or when hardening production.
 
 ---
 
-## Immediate server checklist (run on the box)
+## Block a hostile IP
+
+Use when auth logs show a login you did not perform, e.g.:
+
+```text
+sshd[...]: Accepted password for root from 154.53.192.7 port 19504 ssh2
+```
+
+**Before blocking:** confirm the IP is not yours (check from another device: `curl -s ifconfig.me`). The same IP may appear in nginx logs if it was your phone/browser.
+
+### 1. Block immediately (UFW)
+
+```bash
+sudo ufw deny from 154.53.192.7 comment 'Unauthorized root SSH 2026-07-29'
+sudo ufw status numbered
+```
+
+To remove later: `sudo ufw delete allow|deny ...` using the rule number from `status numbered`.
+
+### 2. Ban in Fail2Ban (optional, adds jail metadata)
+
+```bash
+sudo fail2ban-client set sshd banip 154.53.192.7
+sudo fail2ban-client status sshd
+```
+
+### 3. Stop root password logins (do this even after blocking one IP)
+
+Ensure you have **SSH key access** from a trusted machine before disabling passwords, or you may lock yourself out.
+
+```bash
+# Review who has keys
+sudo cat /root/.ssh/authorized_keys
+
+# Harden sshd
+sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak.$(date +%F)
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sshd -t && sudo systemctl reload sshd
+```
+
+`prohibit-password` = root may only log in with an SSH key, not a password.
+
+### 4. Rotate root credentials and audit
+
+```bash
+sudo passwd root
+sudo grep '154.53.192.7' /var/log/auth.log
+sudo last -20
+sudo crontab -l
+ls -la /root/.ssh/
+```
+
+If anything looks wrong after that login, rotate `JWT_SECRET`, database password, and API keys (see [Rotate credentials](#7-database-and-logs) below).
+
+---
 
 ### 1. Confirm Fail2Ban is doing its job (not blocking real users)
 
@@ -196,5 +252,48 @@ sudo unattended-upgrade --dry-run   # if unattended-upgrades enabled
 - PM2/backend errors: `pm2 logs --lines 100`
 - Fail2Ban bans: `sudo fail2ban-client status`
 - Cert expiry: `sudo certbot certificates`
+
+---
+
+## Troubleshooting
+
+### PM2: `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` → login/API returns 500
+
+Nginx sends `X-Forwarded-For` but Express did not trust the proxy, so `express-rate-limit` threw on every `/auth/*` request.
+
+**Fix:** deploy backend with `app.set('trust proxy', 1)` (in `src/index.ts`), then:
+
+```bash
+cd /var/www/7-asider/appBackend   # or your path
+git pull && npm ci && npm run build
+pm2 restart 7-aside-backend
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://seven-aside.phantommetrics.gm/auth/login-email \
+  -H "Content-Type: application/json" -d '{"email":"test@example.com","password":"x"}'
+```
+
+Expect **401** (invalid credentials), not **500**.
+
+### Nginx 500 on `/auth/*` only
+
+If `seven-aside-api.conf` uses `limit_req zone=7aside_auth` without defining the zone in `/etc/nginx/nginx.conf` `http { }`, nginx returns 500.
+
+Either comment out `limit_req` in the site config, or add:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=7aside_auth:10m rate=10r/m;
+```
+
+Then `sudo nginx -t && sudo systemctl reload nginx`.
+
+### Scanner noise in logs (`GET /.env`, `GET /`)
+
+Bots probing public servers — **harmless if they get 404**. Fail2Ban `nginx-404` jail handles this. They do not mean the backend is down unless you also see 500s on real routes (`/auth/login-email`, `/health`).
+
+```bash
+curl -s https://seven-aside.phantommetrics.gm/health
+# expect: {"ok":true,...}
+```
+
+---
 
 If you confirm compromise: snapshot disk for forensics, rotate all secrets, rebuild from clean image, restore DB from last known-good backup only after reviewing for tampering.

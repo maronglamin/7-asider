@@ -45,6 +45,10 @@ function redactBody(body: unknown): unknown {
 }
 
 const app = express();
+
+// Behind nginx — required for correct client IP and express-rate-limit (X-Forwarded-For)
+app.set('trust proxy', 1);
+
 const allowedOrigins = getAllowedOrigins();
 
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
@@ -103,6 +107,13 @@ app.use('/admin', adminRoutes);
 app.use('/payouts', payoutsRoutes);
 app.use('/easypay', easypayRoutes);
 app.use('/push', pushRoutes);
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
+  console.error('[express error]', (err as Error)?.message || err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
