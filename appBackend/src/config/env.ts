@@ -22,14 +22,27 @@ export function getJwtSecret(): string {
   return (process.env.JWT_SECRET || DEV_JWT_SECRET).trim() || DEV_JWT_SECRET;
 }
 
+const LOCAL_ORIGINS = [
+  'http://localhost:8081',
+  'http://localhost:19006',
+  'http://127.0.0.1:8081',
+  'http://127.0.0.1:19006',
+];
+
+export function isLocalDevOrigin(origin: string): boolean {
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
 export function getAllowedOrigins(): string[] {
   const raw = process.env.CORS_ORIGINS || '';
   const fromEnv = raw.split(',').map((s) => s.trim()).filter(Boolean);
-  if (fromEnv.length > 0) return fromEnv;
-  if (isProduction()) {
-    return ['https://7a-side.phantommetrics.gm'];
+  if (fromEnv.length > 0) {
+    return isProduction() ? fromEnv : [...new Set([...fromEnv, ...LOCAL_ORIGINS])];
   }
-  return ['http://localhost:8081', 'http://localhost:19006', 'http://127.0.0.1:8081'];
+  if (isProduction()) {
+    return ['https://7a-side.phantommetrics.gm', 'https://seven-aside.phantommetrics.gm'];
+  }
+  return LOCAL_ORIGINS;
 }
 
 export function getGoogleClientIds(): string[] {

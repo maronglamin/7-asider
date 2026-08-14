@@ -17,6 +17,8 @@ import { ArrowLeft, Calendar, Clock, X, CheckCircle2, AlertCircle } from 'lucide
 import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
+import { BookingCheckInQrCard } from '../components/BookingCheckInQrCard';
+import { isBookingPaid } from '../utils/easypayBookerMessages';
 
 interface Props {
   navigation?: any;
@@ -198,6 +200,9 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           <View style={styles.badgeRow}>
             <Text style={[styles.badge, styles.statusBadge]}>{String(booking?.status || 'CONFIRMED')}</Text>
             <Text style={[styles.badge, styles.typeBadge]}>{String(booking?.type || 'HOURLY')}</Text>
+            {isBookingPaid(booking?.paymentStatus) ? (
+              <Text style={[styles.badge, styles.paidBadge]}>PAID</Text>
+            ) : null}
           </View>
           <View style={styles.summaryRow}>
             <Calendar size={18} color="#16a34a" />
@@ -215,6 +220,13 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
             <Text style={styles.totalValue}>GMD {booking?.totalAmount || 0}</Text>
           </View>
         </View>
+
+        <BookingCheckInQrCard
+          bookingId={bookingId}
+          paymentStatus={booking?.paymentStatus}
+          bookingStatus={booking?.status}
+          token={token}
+        />
 
         {/* Hourly Breakdown */}
         {breakdown.length > 0 && (
@@ -709,6 +721,10 @@ const styles = StyleSheet.create({
   typeBadge: {
     backgroundColor: '#e0f2fe',
     color: '#075985',
+  },
+  paidBadge: {
+    backgroundColor: '#dcfce7',
+    color: '#166534',
   },
   summaryRow: {
     flexDirection: 'row',

@@ -15,6 +15,15 @@ import {
   startEasypayWalletCheckout,
 } from '../services/easypayPartner';
 import { syncBookingPaymentFromEasypay, isEasypayPartnerAlreadyPaidMessage, markBookingPaidFromEasypay } from '../services/easypayBookingPayment';
+import {
+  buildCheckInPayload,
+  checkInTokenFromMetadata,
+  checkInTokensMatch,
+  newCheckInToken,
+  parseCheckInPayload,
+  sanitizeBookingMetadata,
+  withCheckInToken,
+} from '../utils/bookingCheckIn';
 
 const router = Router();
 
@@ -376,6 +385,7 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
         const { _count, ...rest } = b;
         return {
           ...rest,
+          metadata: sanitizeBookingMetadata(rest.metadata),
           paymentStatus,
           hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
         };
@@ -712,6 +722,7 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
       const { _count, PaymentReceipt, ...rest } = b;
       return {
         ...rest,
+        metadata: sanitizeBookingMetadata(rest.metadata),
         hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
         latestReceiptUrl: latest?.imageUrl || null,
       };
@@ -799,6 +810,7 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
     res.json({
       booking: {
         ...rest,
+        metadata: sanitizeBookingMetadata(rest.metadata),
         hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
         latestReceiptUrl: latest?.imageUrl || null,
       },
@@ -829,6 +841,102 @@ router.patch('/:id/status', requireAuth, async (req: AuthedRequest, res: Respons
     res.json({ ok: true, id: updated.id, status: updated.status });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to update status' });
+  }
+});
+
+// GET /bookings/:id/check-in-code — booker: QR payload after payment (for field-owner scan)
+router.get('/:id/check-in-code', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const id = req.params.id;
+    const booking = await (prisma as any).booking.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        paymentStatus: true,
+        metadata: true,
+      },
+    });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    if (booking.userId !== userId) return res.status(403).json({ error: 'Not allowed' });
+
+    const status = String(booking.status || '').toUpperCase();
+    if (status === 'CANCELLED') {
+      return res.status(409).json({ error: 'This booking was cancelled.' });
+    }
+    if (String(booking.paymentStatus || '').toUpperCase() !== 'PAID') {
+      return res.status(409).json({ error: 'Pay for this booking to get a check-in code.' });
+    }
+
+    let token = checkInTokenFromMetadata(booking.metadata);
+    if (!token) {
+      token = newCheckInToken();
+      const metadata = withCheckInToken(booking.metadata, token);
+      await (prisma as any).booking.update({
+        where: { id },
+        data: { metadata: metadata as any },
+      });
+    }
+
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      ok: true,
+      bookingId: booking.id,
+      payload: buildCheckInPayload(booking.id, token),
+      completed: status === 'COMPLETED',
+    });
+  } catch (e: any) {
+    console.error('[GET /bookings/:id/check-in-code]', e?.message || e);
+    res.status(500).json({ error: e.message || 'Failed to load check-in code' });
+  }
+});
+
+// POST /bookings/:id/check-in — field owner scans guest QR to mark completed
+router.post('/:id/check-in', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const ownerId = req.auth!.userId;
+    const id = req.params.id;
+    const parsed = parseCheckInPayload((req.body || {}).payload ?? (req.body || {}).token);
+    if (!parsed) {
+      return res.status(400).json({ error: 'This QR code is not a valid 7a-side check-in code.' });
+    }
+    if (parsed.bookingId !== id) {
+      return res.status(409).json({ error: 'This QR code is for a different booking.' });
+    }
+
+    const existing = await (prisma as any).booking.findUnique({
+      where: { id },
+      include: { field: { select: { userId: true, name: true } } },
+    });
+    if (!existing) return res.status(404).json({ error: 'Booking not found' });
+    if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+
+    const status = String(existing.status || '').toUpperCase();
+    if (status === 'CANCELLED') {
+      return res.status(409).json({ error: 'This booking was cancelled.' });
+    }
+    if (status === 'COMPLETED') {
+      return res.json({ ok: true, id: existing.id, status: 'COMPLETED', alreadyCompleted: true });
+    }
+    if (String(existing.paymentStatus || '').toUpperCase() !== 'PAID') {
+      return res.status(409).json({ error: 'This booking is not paid yet.' });
+    }
+
+    const expected = checkInTokenFromMetadata(existing.metadata);
+    if (!expected || !checkInTokensMatch(expected, parsed.token)) {
+      return res.status(403).json({ error: 'This QR code does not match this booking.' });
+    }
+
+    const updated = await (prisma as any).booking.update({
+      where: { id },
+      data: { status: 'COMPLETED' },
+    });
+    res.json({ ok: true, id: updated.id, status: updated.status });
+  } catch (e: any) {
+    console.error('[POST /bookings/:id/check-in]', e?.message || e);
+    res.status(500).json({ error: e.message || 'Failed to complete check-in' });
   }
 });
 

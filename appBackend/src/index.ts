@@ -16,7 +16,7 @@ import easypayRoutes from './routes/easypay';
 import pushRoutes from './routes/push';
 import { handleEasypayPartnerWebhook } from './routes/easypayWebhook';
 import path from 'path';
-import { assertSecurityEnv, getAllowedOrigins } from './config/env';
+import { assertSecurityEnv, getAllowedOrigins, isLocalDevOrigin } from './config/env';
 import { authRateLimiter } from './middleware/rateLimit';
 
 assertSecurityEnv();
@@ -55,7 +55,8 @@ app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      // No Origin: native iOS/Android clients. Localhost: Expo web on this machine.
+      if (!origin || allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
         callback(null, true);
         return;
       }

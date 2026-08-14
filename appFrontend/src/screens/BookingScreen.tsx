@@ -10,6 +10,7 @@ import {
   Alert,
   Platform,
   Modal,
+  ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Minus, Plus } from 'lucide-react-native';
 import { apiGet, apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
+import { EasypayPaySheet } from '../components/EasypayPaySheet';
 import { useAuth } from '../context/AuthContext';
 
 type DateItem = {
@@ -211,6 +213,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [field, setField] = useState<any | null>(null);
   const [imageIndex, setImageIndex] = useState<number>(0);
+  const [bookingBusy, setBookingBusy] = useState(false);
+  const [payVisible, setPayVisible] = useState(false);
+  const [payBookingId, setPayBookingId] = useState<string | null>(null);
+  const createdBookingIdRef = useRef<string | null>(null);
 
   const buildAvailabilityPath = React.useCallback((date: string) =>
     `/bookings/availability?fieldId=${encodeURIComponent(fieldId || '')}&date=${encodeURIComponent(date)}${existingBookingId ? `&excludeBookingId=${encodeURIComponent(existingBookingId)}` : ''}`,
@@ -411,6 +417,15 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     setSelectedTimes(newSelection);
   };
 
+  const goToBookedList = (pollId?: string) => {
+    setPayVisible(false);
+    setPayBookingId(null);
+    navigation?.navigate('Main', {
+      screen: 'Book',
+      params: pollId ? { pendingPaymentBookingId: pollId } : undefined,
+    });
+  };
+
   const handleBooking = async () => {
     const isHoursBased = preset === '1h' || preset === '2h' || preset === '3h' || preset === 'halfDay' || preset === 'custom';
     const isFullDay = preset === 'day';
@@ -420,7 +435,13 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       || (isMultiDay && selectedDates.length > 0);
     if (!hasValid) return;
     if (isReschedule && existingBookingId && rescheduleUnchanged) return;
+    if (bookingBusy || payVisible) return;
+    if (!isReschedule && (createdBookingIdRef.current || payBookingId)) {
+      setPayVisible(true);
+      return;
+    }
     try {
+      setBookingBusy(true);
       const fieldId = route?.params?.fieldId as string | undefined;
       if (!fieldId) throw new Error('Missing fieldId');
       if (!token) {
@@ -453,8 +474,15 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         return;
       }
 
-      await apiPostAuth<{ ok: boolean; bookingId: string; totalAmount: number }>(`/bookings`, body, token || '');
-      Alert.alert('Booking Confirmed', 'Your booking has been created.', [{ text: 'OK', onPress: () => navigation?.goBack() }]);
+      const created = await apiPostAuth<{ ok: boolean; bookingId: string; totalAmount: number }>(`/bookings`, body, token || '');
+      const newBookingId = String(created?.bookingId || '');
+      if (!newBookingId) {
+        Alert.alert('Booking Confirmed', 'Your booking has been created.', [{ text: 'OK', onPress: () => goToBookedList() }]);
+        return;
+      }
+      createdBookingIdRef.current = newBookingId;
+      setPayBookingId(newBookingId);
+      setPayVisible(true);
     } catch (e: any) {
       const msg = e?.message || (isReschedule ? 'Failed to reschedule booking' : 'Failed to create booking');
       if (/conflict/i.test(msg) || /409/.test(msg)) {
@@ -474,6 +502,8 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         setConflictMsg(msg);
       }
       Alert.alert(isReschedule ? 'Reschedule Failed' : 'Booking Failed', msg);
+    } finally {
+      setBookingBusy(false);
     }
   };
 
@@ -838,17 +868,36 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       {showBookingSummary ? (
         <View style={[styles.confirmDock, { paddingBottom: Math.max(16, 12 + insets.bottom) }]}>
           <TouchableOpacity
-            style={[styles.confirmButton, isReschedule && rescheduleUnchanged && styles.confirmButtonDisabled]}
+            style={[
+              styles.confirmButton,
+              ((isReschedule && rescheduleUnchanged) || bookingBusy || payVisible) && styles.confirmButtonDisabled,
+            ]}
             onPress={handleBooking}
             activeOpacity={0.9}
-            disabled={isReschedule && rescheduleUnchanged}
-            accessibilityState={{ disabled: !!(isReschedule && rescheduleUnchanged) }}
+            disabled={(isReschedule && rescheduleUnchanged) || bookingBusy || payVisible}
+            accessibilityState={{ disabled: !!(isReschedule && rescheduleUnchanged) || bookingBusy || payVisible }}
           >
-            <Text style={styles.confirmButtonText}>{isReschedule ? 'Confirm reschedule' : 'Confirm booking'}</Text>
+            {bookingBusy && !isReschedule ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.confirmButtonText}>
+                {isReschedule ? 'Confirm reschedule' : payBookingId ? 'Pay with directPay' : 'Confirm booking'}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       ) : null}
       <SafeAreaView edges={["bottom"]} style={styles.bottomSafe} />
+
+      <EasypayPaySheet
+        visible={payVisible}
+        bookingId={payBookingId}
+        token={token}
+        subtitle="Your booking is reserved. Choose a wallet to pay now."
+        onClose={() => setPayVisible(false)}
+        onAlreadyPaid={() => goToBookedList()}
+        onPaymentSubmitted={(id) => goToBookedList(id)}
+      />
 
       {/* Bottom Sheet for time slots */}
       <Modal visible={showTimeSheet} animationType="slide" transparent>

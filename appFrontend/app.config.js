@@ -45,6 +45,14 @@ module.exports = ({ config }) => ({
     '@react-native-community/datetimepicker',
     'expo-secure-store',
     [
+      'expo-camera',
+      {
+        cameraPermission: 'Allow 7a-side to scan a guest check-in QR code so you can mark the booking as completed.',
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
+    [
       'expo-image-picker',
       {
         photosPermission:

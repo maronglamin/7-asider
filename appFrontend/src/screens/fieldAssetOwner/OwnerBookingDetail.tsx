@@ -3,9 +3,11 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Mod
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, ScanLine } from 'lucide-react-native';
 import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import { CheckInScannerModal } from '../../components/CheckInScannerModal';
+import { isBookingPaid } from '../../utils/easypayBookerMessages';
 
 export default function OwnerBookingDetail({ navigation, route }: any) {
   const { token } = useAuth();
@@ -17,8 +19,8 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
-  const [updating, setUpdating] = useState(false);
   const [payUpdating, setPayUpdating] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
   const [receipts, setReceipts] = useState<any[]>([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
@@ -95,18 +97,10 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
     }
   }, [paramBooking?.id]);
 
-  const onComplete = async () => {
-    try {
-      setUpdating(true);
-      await apiPatchAuth(`/bookings/${booking.id}/status`, { status: 'COMPLETED' }, token as string);
-      setBooking((prev: any) => (prev ? { ...prev, status: 'COMPLETED' } : prev));
-      Alert.alert('Updated', 'Booking marked as completed.', [{ text: 'OK', onPress: () => navigation.goBack() }]);
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to update');
-    } finally {
-      setUpdating(false);
-    }
-  };
+  const paid = isBookingPaid(booking?.paymentStatus);
+  const completed = String(booking?.status || '').toUpperCase() === 'COMPLETED';
+  const cancelled = String(booking?.status || '').toUpperCase() === 'CANCELLED';
+  const canScanCheckIn = Boolean(token && booking?.id && paid && !completed && !cancelled);
 
   const onMarkPaid = async () => {
     try {
@@ -252,11 +246,11 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
         <View style={styles.block}>
           <Text style={styles.sectionTitle}>Payment</Text>
           <View style={{ marginBottom: 10 }}>
-            {String(booking?.paymentStatus || '').toUpperCase() === 'PAID' ? (
+            {isBookingPaid(booking?.paymentStatus) ? (
               <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
                 <Text style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>
-                  directPay (or other) payments update here automatically when confirmed.
+                  Scan the guest check-in QR on their booking details to mark this visit completed.
                 </Text>
               </View>
             ) : (
@@ -298,19 +292,17 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
           <TouchableOpacity
             disabled={
               payUpdating ||
-              String(booking.paymentStatus || '').toUpperCase() === 'PAID' ||
+              paid ||
               !booking?.hasReceipt
             }
             style={[
               styles.secondary,
-              (payUpdating ||
-                String(booking.paymentStatus || '').toUpperCase() === 'PAID' ||
-                !booking?.hasReceipt) && { opacity: 0.6 },
+              (payUpdating || paid || !booking?.hasReceipt) && { opacity: 0.6 },
             ]}
             onPress={onMarkPaid}
           >
             <Text style={styles.secondaryText}>
-              {String(booking.paymentStatus || '').toUpperCase() === 'PAID'
+              {paid
                 ? 'Paid'
                 : !booking?.hasReceipt
                   ? 'Receipt needed to mark paid'
@@ -320,14 +312,34 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            disabled={updating || booking.status === 'COMPLETED'}
-            style={[styles.primary, (updating || booking.status === 'COMPLETED') && { opacity: 0.6 }]}
-            onPress={onComplete}
+            disabled={!canScanCheckIn}
+            style={[styles.primary, styles.scanBtn, !canScanCheckIn && { opacity: 0.6 }]}
+            onPress={() => {
+              if (!canScanCheckIn) {
+                if (!paid) Alert.alert('Payment needed', 'The guest must pay before you can scan their check-in code.');
+                return;
+              }
+              setScannerVisible(true);
+            }}
           >
-            <Text style={styles.primaryText}>{booking.status === 'COMPLETED' ? 'Completed' : 'Mark as Completed'}</Text>
+            <ScanLine size={18} color="#ffffff" />
+            <Text style={styles.primaryText}>{completed ? 'Checked in' : 'Scan QR'}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+
+      {token && booking?.id ? (
+        <CheckInScannerModal
+          visible={scannerVisible}
+          bookingId={String(booking.id)}
+          token={token as string}
+          onClose={() => setScannerVisible(false)}
+          onCompleted={() => {
+            setBooking((prev: any) => (prev ? { ...prev, status: 'COMPLETED' } : prev));
+            void refreshBooking();
+          }}
+        />
+      ) : null}
 
       {/* Receipt Preview Modal */}
       <Modal visible={previewVisible} transparent animationType="fade" onRequestClose={() => setPreviewVisible(false)}>
@@ -368,6 +380,7 @@ const styles = StyleSheet.create({
   footer: { backgroundColor: '#ffffff', padding: 16 },
   buttonsRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   primary: { backgroundColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 14, flex: 1 },
+  scanBtn: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   primaryText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },
   secondary: { backgroundColor: '#ffffff', borderWidth: 2, borderColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 14, flex: 1 },
   secondaryText: { color: '#16a34a', fontWeight: '700', fontSize: 16 },
