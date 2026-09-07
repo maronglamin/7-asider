@@ -162,10 +162,17 @@ export async function syncBookingPaymentFromEasypay(booking: {
     } catch (getErr: any) {
       const amountGmd = Number(booking.totalAmount);
       if (getErr?.status === 404 && Number.isFinite(amountGmd) && amountGmd > 0) {
+        const fieldRow = await (prisma as any).booking.findUnique({
+          where: { id: booking.id },
+          select: { field: { select: { name: true } } },
+        });
+        const category =
+          typeof fieldRow?.field?.name === 'string' ? fieldRow.field.name.trim() : '';
         order = await createEasypayOrder(businessId, {
           partnerExternalBookingId: booking.id,
           amountGmd,
           currency: booking.currency || 'GMD',
+          ...(category ? { category } : {}),
         });
       } else {
         throw getErr;

@@ -192,13 +192,20 @@ export async function getEasypayOrder(businessId: string, orderId: string): Prom
 
 export async function createEasypayOrder(
   businessId: string,
-  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string },
+  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string; category?: string },
 ): Promise<EasypayPartnerOrder> {
+  const category = input.category?.trim();
+  const body = {
+    partnerExternalBookingId: input.partnerExternalBookingId,
+    amountGmd: input.amountGmd,
+    ...(input.currency ? { currency: input.currency } : {}),
+    ...(category ? { category } : {}),
+  };
   const json = await partnerJson<{
     data?: {
       order?: Record<string, unknown>;
     };
-  }>(`/businesses/${encodeURIComponent(businessId)}/orders`, { method: 'POST', body: input });
+  }>(`/businesses/${encodeURIComponent(businessId)}/orders`, { method: 'POST', body });
   const rawOrder =
     json?.data?.order ?? (json as any)?.data?.order ?? (json as any)?.data;
   return normalizeEasypayOrder(rawOrder);
