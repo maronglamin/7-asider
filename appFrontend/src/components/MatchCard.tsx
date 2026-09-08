@@ -15,7 +15,7 @@ interface MatchCardProps {
     date: string;
     time: string;
     squad: string;
-    status?: 'confirmed' | 'pending' | 'cancelled' | 'completed';
+    status?: 'confirmed' | 'pending' | 'cancelled' | 'completed' | 'pending_refund';
     participants?: number;
     maxParticipants?: number;
     result?: string;
@@ -34,6 +34,8 @@ function statusBadgeStyles(status: NonNullable<MatchCardProps['match']['status']
       return { badge: styles.pendingBadge, text: styles.pendingText, label: 'Pending' };
     case 'cancelled':
       return { badge: styles.cancelledBadge, text: styles.cancelledText, label: 'Cancelled' };
+    case 'pending_refund':
+      return { badge: styles.pendingRefundBadge, text: styles.pendingRefundText, label: 'Pending refund' };
     case 'completed':
       return { badge: styles.completedBadge, text: styles.completedText, label: 'Completed' };
     default:
@@ -65,12 +67,12 @@ export function MatchCard({ match, type, onPrimaryPress }: MatchCardProps) {
               <Text style={styles.dateTimeText}>{match.time}</Text>
             </View>
           </View>
-          {/*
-          <View style={styles.squadContainer}>
-            <Users size={16} color="#6b7280" />
-            <Text style={styles.squadText}>{match.squad}</Text>
-          </View>
-          */}
+          {match.squad ? (
+            <View style={styles.squadContainer}>
+              <Users size={16} color="#6b7280" />
+              <Text style={styles.squadText}>{match.squad}</Text>
+            </View>
+          ) : null}
         </View>
         {match.status ? (() => {
           const sb = statusBadgeStyles(match.status);
@@ -224,6 +226,12 @@ const styles = StyleSheet.create({
   },
   cancelledText: {
     color: '#991b1b',
+  },
+  pendingRefundBadge: {
+    backgroundColor: '#ffedd5',
+  },
+  pendingRefundText: {
+    color: '#9a3412',
   },
   completedBadge: {
     backgroundColor: '#e0f2fe',

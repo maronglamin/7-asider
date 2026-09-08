@@ -21,6 +21,10 @@ model User {
   /// Easypay merchant tenant (field owner / organiser), from internal-partner provision
   easypayBusinessId String?
   easypaySlug       String?
+  appLockType           AppLockType?
+  appLockSecretHash     String?
+  appLockFailedAttempts Int          @default(0)
+  appLockLockedUntil    DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   sessions       Session[]
@@ -32,6 +36,7 @@ model User {
   walletAccounts WalletAccount[]
   sentContractInvitations ContractInvitation[] @relation("ContractInvitationSender")
   pushDevices      PushDevice[]
+  squadMemberships SquadMember[]
 
   @@index([email])
 }
@@ -94,6 +99,20 @@ enum UserStatus {
   TERMINATED
 }
 
+enum AppLockType {
+  PIN
+}
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  email     String
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
 enum ContractInvitationTemplateType {
   DEFAULT
   CUSTOM
@@ -151,6 +170,7 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
   COMPLETED
+  PENDING_REFUND
 }
 
 enum PaymentStatus {
@@ -188,6 +208,8 @@ model Booking {
   field          FieldKyc         @relation(fields: [fieldId], references: [id])
   units          BookingUnit[]
   PaymentReceipt PaymentReceipt[]
+  squads         BookingSquad[]
+  challenges     SquadChallenge[]
 
   @@index([userId, createdAt])
   @@index([fieldId, startAt, endAt])
@@ -267,4 +289,85 @@ model WalletAccount {
 
   @@index([userId, createdAt])
   @@unique([userId, walletNumber])
+}
+
+enum SquadRole {
+  CAPTAIN
+  MEMBER
+}
+
+enum BookingSide {
+  HOME
+  AWAY
+}
+
+enum SquadChallengeStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+model Squad {
+  id         String   @id @default(cuid())
+  name       String
+  emoji      String   @default("⚽")
+  color      String   @default("#16a34a")
+  inviteCode String   @unique
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  members          SquadMember[]
+  bookings         BookingSquad[]
+  challengesFrom   SquadChallenge[] @relation("ChallengeFrom")
+  challengesTo     SquadChallenge[] @relation("ChallengeTo")
+}
+
+model SquadMember {
+  id       String    @id @default(cuid())
+  squadId  String
+  userId   String
+  role     SquadRole @default(MEMBER)
+  joinedAt DateTime  @default(now())
+
+  squad Squad @relation(fields: [squadId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([squadId, userId])
+  @@index([userId])
+}
+
+model BookingSquad {
+  id        String      @id @default(cuid())
+  bookingId String
+  squadId   String
+  side      BookingSide @default(HOME)
+  createdAt DateTime    @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  squad   Squad   @relation(fields: [squadId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, squadId])
+  @@unique([bookingId, side])
+  @@index([squadId])
+}
+
+model SquadChallenge {
+  id          String               @id @default(cuid())
+  bookingId   String
+  fromSquadId String
+  toSquadId   String?
+  token       String               @unique
+  status      SquadChallengeStatus @default(PENDING)
+  expiresAt   DateTime
+  createdAt   DateTime             @default(now())
+  acceptedAt  DateTime?
+
+  booking   Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  fromSquad Squad   @relation("ChallengeFrom", fields: [fromSquadId], references: [id], onDelete: Cascade)
+  toSquad   Squad?  @relation("ChallengeTo", fields: [toSquadId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, status])
+  @@index([fromSquadId])
+  @@index([toSquadId])
 }

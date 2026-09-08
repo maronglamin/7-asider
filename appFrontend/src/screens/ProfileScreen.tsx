@@ -8,22 +8,26 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  TextInput,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
-import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2, RefreshCw } from 'lucide-react-native';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2, RefreshCw, KeyRound } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext';
-import { apiGetAuth } from '../api/client';
+import { needsDisplayName, useAuth } from '../context/AuthContext';
+import { apiGetAuth, apiPatchAuth } from '../api/client';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export function ProfileScreen() {
-  const { user, clearAuth, token } = useAuth() as any;
+  const { user, clearAuth, token, updateUser } = useAuth();
   const navigation = useNavigation();
   const [hasKyc, setHasKyc] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const [nameError, setNameError] = useState('');
   const insets = useSafeAreaInsets();
+  const needsName = needsDisplayName(user);
 
   const handleCheckForUpdate = async () => {
     if (Platform.OS === 'web') {
@@ -84,15 +88,25 @@ export function ProfileScreen() {
       onPress: () => navigation.navigate('UserInfo' as never),
     },
     {
+      label: user?.appLockType === 'pin' ? 'Change PIN' : 'Set PIN',
+      icon: KeyRound,
+      onPress: () =>
+        navigation.navigate((user?.appLockType === 'pin' ? 'VerifyPin' : 'SetPin') as never),
+    },
+    {
       label: 'Banks & Wallets',
       icon: Wallet,
       onPress: () => navigation.navigate('BanksWallets' as never),
     },
-    {
-      label: 'Change Password',
-      icon: Lock,
-      onPress: () => navigation.navigate('ChangePassword' as never),
-    },
+    ...(user?.hasPassword
+      ? [
+          {
+            label: 'Change Password',
+            icon: Lock,
+            onPress: () => navigation.navigate('ChangePassword' as never),
+          },
+        ]
+      : []),
     ...(Updates.isEnabled
       ? [
           {
@@ -110,7 +124,26 @@ export function ProfileScreen() {
     },
   ];
 
-  const displayName = user?.name ?? (user?.email ? user.email.split('@')[0] : '');
+  const displayName = user?.name?.trim() || 'Complete your profile';
+
+  const saveName = async () => {
+    const next = nameInput.trim();
+    if (next.length < 2) {
+      setNameError('Enter your full name');
+      return;
+    }
+    if (!token) return;
+    setSavingName(true);
+    setNameError('');
+    try {
+      const updated = await apiPatchAuth<{ name?: string | null }>('/auth/me', { name: next }, token);
+      updateUser({ name: updated.name ?? next });
+    } catch (e: any) {
+      setNameError(e.message || 'Could not save your name');
+    } finally {
+      setSavingName(false);
+    }
+  };
 
   useEffect(() => {
     (async () => {
@@ -141,38 +174,71 @@ export function ProfileScreen() {
             )}
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{displayName || ' '}</Text>
+            <Text style={styles.userName}>{displayName}</Text>
             <Text style={styles.userHandle}>{user?.email || ''}</Text>
           </View>
         </View>
       </View>
 
       <ScrollView style={[styles.content, Platform.OS === 'web' ? { minHeight: 0, minWidth: 0 } : null]} showsVerticalScrollIndicator={false}>
-        {/* Menu Items */}
-        <View style={styles.menuContainer}>
-          {menuItems.map((item: any, index) => {
-            const Icon = item.icon;
-            const busy = item.disabledWhile;
-            return (
-              <TouchableOpacity
-                key={index}
-                style={[styles.menuItem, busy ? styles.menuItemDisabled : null]}
-                onPress={item.onPress}
-                disabled={!!busy}
-              >
-                <View style={styles.menuIconContainer}>
-                  {busy ? (
-                    <ActivityIndicator size="small" color="#16a34a" />
-                  ) : (
-                    <Icon size={20} color="#16a34a" />
-                  )}
-                </View>
-                <Text style={styles.menuLabel}>{busy ? 'Checking for update…' : item.label}</Text>
-                {!busy ? <Text style={styles.menuArrow}>›</Text> : null}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
+        {needsName ? (
+          <View style={styles.onboardingCard}>
+            <Text style={styles.onboardingTitle}>Complete your profile</Text>
+            <Text style={styles.onboardingBody}>
+              Add your name so teammates and field owners know who you are.
+            </Text>
+            <Text style={styles.inputLabel}>Full name</Text>
+            <TextInput
+              style={styles.nameInput}
+              value={nameInput}
+              onChangeText={(value) => {
+                setNameInput(value);
+                setNameError('');
+              }}
+              placeholder="Your name"
+              placeholderTextColor="#9ca3af"
+              autoCapitalize="words"
+              autoFocus
+            />
+            {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
+            <TouchableOpacity
+              style={[styles.saveNameButton, (savingName || nameInput.trim().length < 2) && styles.saveNameDisabled]}
+              onPress={saveName}
+              disabled={savingName || nameInput.trim().length < 2}
+            >
+              {savingName ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.saveNameText}>Save and continue</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.menuContainer}>
+            {menuItems.map((item: any, index) => {
+              const Icon = item.icon;
+              const busy = item.disabledWhile;
+              return (
+                <TouchableOpacity
+                  key={index}
+                  style={[styles.menuItem, busy ? styles.menuItemDisabled : null]}
+                  onPress={item.onPress}
+                  disabled={!!busy}
+                >
+                  <View style={styles.menuIconContainer}>
+                    {busy ? (
+                      <ActivityIndicator size="small" color="#16a34a" />
+                    ) : (
+                      <Icon size={20} color="#16a34a" />
+                    )}
+                  </View>
+                  <Text style={styles.menuLabel}>{busy ? 'Checking for update…' : item.label}</Text>
+                  {!busy ? <Text style={styles.menuArrow}>›</Text> : null}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Logout Button */}
         <View style={styles.logoutContainer}>
@@ -297,6 +363,70 @@ const styles = StyleSheet.create({
           maxWidth: 640,
         } as any)
       : null),
+  },
+  onboardingCard: {
+    margin: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    ...(Platform.OS === 'web'
+      ? ({
+          alignSelf: 'center',
+          width: '100%',
+          maxWidth: 640,
+        } as any)
+      : null),
+  },
+  onboardingTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  onboardingBody: {
+    fontSize: 15,
+    color: '#6b7280',
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  nameInput: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#111827',
+    backgroundColor: '#f9fafb',
+  },
+  nameError: {
+    marginTop: 8,
+    color: '#dc2626',
+    fontSize: 13,
+  },
+  saveNameButton: {
+    marginTop: 16,
+    backgroundColor: '#16a34a',
+    borderRadius: 12,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveNameDisabled: {
+    backgroundColor: '#d1d5db',
+  },
+  saveNameText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
   },
   menuItem: {
     backgroundColor: '#ffffff',

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
-import { navigateToBookingFromPush } from './navigationRef';
+import { navigateToBookingFromPush, navigationRef } from './navigationRef';
 
 function extractBookingIdFromNotificationData(data: Record<string, unknown> | undefined): string | undefined {
   if (!data) return undefined;
@@ -23,6 +23,24 @@ export function PushDeepLinkHandler() {
   useEffect(() => {
     const handleResponse = (response: Notifications.NotificationResponse | null) => {
       const data = response?.notification?.request?.content?.data as Record<string, unknown> | undefined;
+      const challengeToken = data?.['challengeToken'] ? String(data['challengeToken']).trim() : '';
+      if (challengeToken) {
+        try {
+          (navigationRef as any).navigate('ChallengeAccept', { token: challengeToken });
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
+      const squadId = data?.['squadId'] && !data?.['bookingId'] ? String(data['squadId']).trim() : '';
+      if (squadId) {
+        try {
+          (navigationRef as any).navigate('SquadDetail', { squadId });
+        } catch {
+          /* ignore */
+        }
+        return;
+      }
       const id = extractBookingIdFromNotificationData(data);
       if (id) navigateToBookingFromPush(id, openAsFromNotificationData(data));
     };

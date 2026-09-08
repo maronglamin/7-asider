@@ -10,7 +10,7 @@ def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 def readExpoForUpdates = {
     def f = file("$projectRoot/app.json")
     if (!f.exists()) {
-        return [appVersion: "1.0.2", versionCode: 1, runtimeVersion: "1.0.2", updateUrl: "", easProjectId: "", enabled: false]
+        return [appVersion: "1.0.4", versionCode: 1, runtimeVersion: "1.0.4", updateUrl: "", easProjectId: "", enabled: false]
     }
     def root = new JsonSlurper().parse(f)
     def expo = root.expo ?: [:]
@@ -19,7 +19,7 @@ def readExpoForUpdates = {
     if (!url && id) {
         url = "https://u.expo.dev/${id}"
     }
-    def ver = expo.version?.toString() ?: "1.0.2"
+    def ver = expo.version?.toString() ?: "1.0.4"
     def versionCode = (expo.android?.versionCode ?: 1) as Integer
     def rawRv = expo.runtimeVersion
     def runtimeVer = (rawRv instanceof String && rawRv.toString().trim())

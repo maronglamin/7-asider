@@ -1,5 +1,5 @@
 import { prisma } from '../db/prisma';
-import { createEasypayOrder, getEasypayOrder, getEasypayPartnerConfig, type EasypayPartnerOrder } from './easypayPartner';
+import { createEasypayOrder, easypayOrderCategoryFromFieldName, getEasypayOrder, getEasypayPartnerConfig, type EasypayPartnerOrder } from './easypayPartner';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -49,6 +49,11 @@ export function pickPartnerWebhookAmount(body: JsonRecord): unknown {
   return body.amount ?? body.amountGmd ?? body.amount_gmd ?? data?.amount ?? data?.amountGmd ?? data?.amount_gmd;
 }
 
+export function pickPartnerWebhookCategory(body: JsonRecord): string | undefined {
+  const data = asRecord(body.data);
+  return pickString(body, ['category']) || pickString(data, ['category']);
+}
+
 export function normalizePartnerWebhookEvent(raw: unknown): string {
   return String(raw || '')
     .trim()
@@ -89,12 +94,13 @@ export async function markBookingPaidFromEasypay(
     event?: string;
     paymentId?: string;
     webhookAmount?: unknown;
+    category?: string;
     dedupeKey?: string | null;
   },
 ): Promise<'paid' | 'already_paid' | 'amount_mismatch' | 'not_found'> {
   const booking = await prisma.booking.findUnique({
     where: { id: bookingId },
-    select: { id: true, paymentStatus: true, totalAmount: true, metadata: true },
+    select: { id: true, paymentStatus: true, totalAmount: true, metadata: true, status: true },
   });
   if (!booking) return 'not_found';
   if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') return 'already_paid';
@@ -121,6 +127,7 @@ export async function markBookingPaidFromEasypay(
   }
   if (opts.event) easypay.lastWebhookEvent = opts.event;
   if (opts.paymentId) easypay.lastPaymentId = opts.paymentId;
+  if (opts.category) easypay.category = opts.category;
   easypay.lastPaidSource = opts.source;
   easypay.lastPaidAt = new Date().toISOString();
   meta.easypay = easypay;
@@ -130,6 +137,7 @@ export async function markBookingPaidFromEasypay(
     data: {
       paymentStatus: 'PAID',
       metadata: meta as any,
+      ...(String(booking.status || '').toUpperCase() === 'CANCELLED' ? { status: 'PENDING_REFUND' } : {}),
     },
   });
   return 'paid';
@@ -162,12 +170,11 @@ export async function syncBookingPaymentFromEasypay(booking: {
     } catch (getErr: any) {
       const amountGmd = Number(booking.totalAmount);
       if (getErr?.status === 404 && Number.isFinite(amountGmd) && amountGmd > 0) {
-        const fieldRow = await (prisma as any).booking.findUnique({
+        const fieldRow = await prisma.booking.findUnique({
           where: { id: booking.id },
           select: { field: { select: { name: true } } },
         });
-        const category =
-          typeof fieldRow?.field?.name === 'string' ? fieldRow.field.name.trim() : '';
+        const category = easypayOrderCategoryFromFieldName(fieldRow?.field?.name);
         order = await createEasypayOrder(businessId, {
           partnerExternalBookingId: booking.id,
           amountGmd,

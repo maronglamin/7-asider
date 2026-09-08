@@ -14,6 +14,10 @@ import Constants from 'expo-constants';
 import { MatchesScreen } from './src/screens/MatchesScreen';
 import { BookScreen } from './src/screens/BookScreen';
 import { SquadsScreen } from './src/screens/SquadsScreen';
+import { CreateSquadScreen } from './src/screens/squads/CreateSquadScreen';
+import { JoinSquadScreen } from './src/screens/squads/JoinSquadScreen';
+import { SquadDetailScreen } from './src/screens/squads/SquadDetailScreen';
+import { ChallengeAcceptScreen } from './src/screens/squads/ChallengeAcceptScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { BookingScreen } from './src/screens/BookingScreen';
 import { RegisterFieldScreen, FieldDetailScreen } from './src/screens/fieldKyc';
@@ -40,20 +44,23 @@ import LinkEasypayScreen from './src/screens/LinkEasypayScreen';
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
 import { LoginScreen } from './src/screens/auth/LoginScreen';
-import { RegisterScreen } from './src/screens/auth/RegisterScreen';
-import { EmailLoginScreen } from './src/screens/auth/EmailLoginScreen';
-import { ForgotPasswordScreen } from './src/screens/auth/ForgotPasswordScreen';
+import { SetPinScreen } from './src/screens/auth/SetPinScreen';
+import { ConfirmPinScreen } from './src/screens/auth/ConfirmPinScreen';
+import { VerifyPinScreen } from './src/screens/auth/VerifyPinScreen';
 
 // Import components
 import { BottomTabBar } from './src/components/BottomTabBar';
 import { AppReleaseSheet, ReleaseNotice } from './src/components/AppReleaseSheet';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { AppLockProvider } from './src/context/AppLockContext';
+import { AppLockGate } from './src/components/AppLockGate';
 import { apiGet } from './src/api/client';
 import { registerServiceWorker } from './src/pwa/registerServiceWorker';
 import { installWebDocumentLayout, installWebNativeCompat } from './src/utils/webNativeCompat';
 import { navigationRef, onNavigationContainerReady, flushPendingOwnerBookingNavigation } from './src/navigation/navigationRef';
 import { getNavigationLinking } from './src/navigation/linking';
 import { PushDeepLinkHandler } from './src/navigation/PushDeepLinkHandler';
+import { PendingSquadDeepLinkHandler } from './src/navigation/PendingSquadDeepLinkHandler';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -247,15 +254,19 @@ function RootNavigator() {
         >
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         <Stack.Screen name="Login" component={LoginScreen} />
-        <Stack.Screen name="EmailLogin" component={EmailLoginScreen} />
-        <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-        <Stack.Screen name="Register" component={RegisterScreen} />
+        <Stack.Screen name="SetPin" component={SetPinScreen} />
+        <Stack.Screen name="ConfirmPin" component={ConfirmPinScreen} />
+        <Stack.Screen name="VerifyPin" component={VerifyPinScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Booking" component={BookingScreen} />
         <Stack.Screen name="MyFields" component={MyFieldsScreen} />
         <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
         <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
         <Stack.Screen name="FindField" component={FindFieldScreen} />
+        <Stack.Screen name="CreateSquad" component={CreateSquadScreen} />
+        <Stack.Screen name="JoinSquad" component={JoinSquadScreen} />
+        <Stack.Screen name="SquadDetail" component={SquadDetailScreen} />
+        <Stack.Screen name="ChallengeAccept" component={ChallengeAcceptScreen} />
         <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
         <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
         <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
@@ -275,6 +286,7 @@ function RootNavigator() {
         <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
       </Stack.Navigator>
       <PushDeepLinkHandler />
+      <PendingSquadDeepLinkHandler />
       </View>
     </NavigationContainer>
   );
@@ -372,12 +384,16 @@ export default function App() {
         <SafeAreaProvider>
           <View style={Platform.OS === 'web' ? appShellStyles.webNavHost : { flex: 1 }}>
             <AuthProvider>
-              <RootNavigator />
-              <AppReleaseSheet
-                notice={releaseNotice}
-                onDismiss={handleDismissRelease}
-                onUpdate={handleUpdateRelease}
-              />
+              <AppLockProvider>
+                <AppLockGate>
+                  <RootNavigator />
+                  <AppReleaseSheet
+                    notice={releaseNotice}
+                    onDismiss={handleDismissRelease}
+                    onUpdate={handleUpdateRelease}
+                  />
+                </AppLockGate>
+              </AppLockProvider>
             </AuthProvider>
           </View>
         </SafeAreaProvider>

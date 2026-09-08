@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Minus, Plus } from 'lucide-react-native';
+import { ArrowLeft, Calendar, ChevronDown, ChevronUp, Clock, Minus, Plus, Users } from 'lucide-react-native';
 import { apiGet, apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 import { EasypayPaySheet } from '../components/EasypayPaySheet';
@@ -195,6 +195,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const contentWidth = Platform.OS === 'web' ? Math.min(windowWidth, 1180) : windowWidth;
   const { token } = useAuth();
   const fieldId = route?.params?.fieldId as string | undefined;
+  const routeSquadId = route?.params?.squadId as string | undefined;
   const rescheduleBooking = route?.params?.booking;
   const isReschedule = route?.params?.mode === 'reschedule' && !!rescheduleBooking?.id;
   const existingBookingId = isReschedule ? String(rescheduleBooking?.id) : '';
@@ -217,6 +218,8 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [payVisible, setPayVisible] = useState(false);
   const [payBookingId, setPayBookingId] = useState<string | null>(null);
   const createdBookingIdRef = useRef<string | null>(null);
+  const [mySquads, setMySquads] = useState<{ id: string; name: string; emoji: string }[]>([]);
+  const [selectedSquadId, setSelectedSquadId] = useState<string | null>(routeSquadId || null);
 
   const buildAvailabilityPath = React.useCallback((date: string) =>
     `/bookings/availability?fieldId=${encodeURIComponent(fieldId || '')}&date=${encodeURIComponent(date)}${existingBookingId ? `&excludeBookingId=${encodeURIComponent(existingBookingId)}` : ''}`,
@@ -226,6 +229,22 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     didPrefillRef.current = false;
     setRescheduleDurationExpanded(false);
   }, [existingBookingId]);
+
+  useEffect(() => {
+    if (routeSquadId) setSelectedSquadId(routeSquadId);
+  }, [routeSquadId]);
+
+  useEffect(() => {
+    (async () => {
+      if (!token || isReschedule) return;
+      try {
+        const res = await apiGetAuth<{ items: { id: string; name: string; emoji: string }[] }>('/squads/mine', token);
+        setMySquads(res.items || []);
+      } catch {
+        setMySquads([]);
+      }
+    })();
+  }, [token, isReschedule]);
 
   useEffect(() => {
     if (!isReschedule || didPrefillRef.current) return;
@@ -460,6 +479,9 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         const hours = selectedTimes.length;
         body = { fieldId, kind: preset === 'custom' ? 'CUSTOM' : 'HOURLY', date: selectedDate, startHour, hours, timezone };
       }
+      if (!isReschedule && selectedSquadId) {
+        body.squadId = selectedSquadId;
+      }
       if (isReschedule && existingBookingId) {
         const res = await apiPatchAuth<{ ok: boolean; booking: any }>(`/bookings/${existingBookingId}/reschedule`, body, token || '');
         const nextBooking = {
@@ -674,6 +696,34 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        {!isReschedule && mySquads.length > 0 ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Users size={20} color="#16a34a" />
+              <Text style={styles.sectionTitle}>Book as</Text>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              <TouchableOpacity
+                onPress={() => setSelectedSquadId(null)}
+                style={[styles.chip, !selectedSquadId && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, !selectedSquadId && styles.chipTextActive]}>Just me</Text>
+              </TouchableOpacity>
+              {mySquads.map((s) => (
+                <TouchableOpacity
+                  key={s.id}
+                  onPress={() => setSelectedSquadId(s.id)}
+                  style={[styles.chip, selectedSquadId === s.id && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, selectedSquadId === s.id && styles.chipTextActive]}>
+                    {s.emoji} {s.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
+
         {/* Duration */}
         {isReschedule ? (
           <View style={[styles.section, styles.sectionReschedule]}>

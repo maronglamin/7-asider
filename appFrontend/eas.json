@@ -18,6 +18,11 @@
     },
     "production": {
       "channel": "production",
+      "env": {
+        "API_BASE": "https://seven-aside.phantommetrics.gm",
+        "APP_PUBLIC_URL": "https://7a-side.phantommetrics.gm",
+        "NODE_ENV": "production"
+      },
       "android": {
         "buildType": "app-bundle"
       }

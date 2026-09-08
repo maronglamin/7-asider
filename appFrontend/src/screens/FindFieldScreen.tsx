@@ -65,9 +65,11 @@ type SortOption = 'recent' | 'price_asc' | 'price_desc' | 'shuffle' | 'nearest';
 
 interface Props {
   navigation?: any;
+  route?: any;
 }
 
-export default function FindFieldScreen({ navigation }: Props) {
+export default function FindFieldScreen({ navigation, route }: Props) {
+  const squadId = route?.params?.squadId as string | undefined;
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortOption>('shuffle');
   // removed filters per request
@@ -156,7 +158,7 @@ export default function FindFieldScreen({ navigation }: Props) {
       Linking.openURL(`tel:${telDigits}`).catch(() => {});
     };
     return (
-      <TouchableOpacity style={styles.card} onPress={() => navigation?.navigate('Booking', { fieldId: item.id })}>
+      <TouchableOpacity style={styles.card} onPress={() => navigation?.navigate('Booking', { fieldId: item.id, squadId })}>
         {img ? <Image source={{ uri: img }} style={styles.cardImage} /> : <View style={[styles.cardImage, styles.cardImagePlaceholder]} />}
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle}>{item.name}</Text>
@@ -184,7 +186,7 @@ export default function FindFieldScreen({ navigation }: Props) {
         </View>
       </TouchableOpacity>
     );
-  }, [navigation]);
+  }, [navigation, squadId]);
 
   const keyExtractor = useCallback((it: PublicField) => it.id, []);
 

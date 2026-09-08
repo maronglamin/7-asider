@@ -5,6 +5,7 @@ import { verifyAppleIdentityToken } from '../auth/apple';
 import { signJwt } from '../utils/jwt';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
+import { toAuthUser } from '../utils/authUser';
 
 const router = Router();
 
@@ -103,12 +104,19 @@ router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
         supadmin: true,
         provider: true,
         providerId: true,
+        passwordHash: true,
+        appLockType: true,
         createdAt: true,
         updatedAt: true,
       },
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json({
+      ...toAuthUser(user),
+      providerId: user.providerId,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch user' });
   }
@@ -131,7 +139,13 @@ router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
     }
     if (typeof name === 'string') {
       const trimmedName = name.trim();
-      if (trimmedName.length > 0) data.name = trimmedName;
+      if (trimmedName.length < 2) {
+        return res.status(400).json({ error: 'Enter your full name' });
+      }
+      if (trimmedName.length > 80) {
+        return res.status(400).json({ error: 'Name is too long' });
+      }
+      data.name = trimmedName;
     }
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No changes provided' });
 
@@ -144,13 +158,21 @@ router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
           email: true,
           username: true,
           name: true,
+          supadmin: true,
           provider: true,
           providerId: true,
+          passwordHash: true,
+          appLockType: true,
           createdAt: true,
           updatedAt: true,
         },
       });
-      return res.json(updated);
+      return res.json({
+        ...toAuthUser(updated),
+        providerId: updated.providerId,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      });
     } catch (e: any) {
       if (e?.code === 'P2002') {
         return res.status(409).json({ error: 'Username already taken' });

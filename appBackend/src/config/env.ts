@@ -22,6 +22,10 @@ export function getJwtSecret(): string {
   return (process.env.JWT_SECRET || DEV_JWT_SECRET).trim() || DEV_JWT_SECRET;
 }
 
+export function getAppLockPepper(): string {
+  return (process.env.APP_LOCK_PEPPER || getJwtSecret()).trim();
+}
+
 const LOCAL_ORIGINS = [
   'http://localhost:8081',
   'http://localhost:19006',

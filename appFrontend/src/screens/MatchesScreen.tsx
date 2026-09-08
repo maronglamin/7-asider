@@ -79,14 +79,16 @@ export function MatchesScreen() {
       const endAt = b.endAt ? new Date(b.endAt) : null;
       const isPast = endAt ? endAt.getTime() < now : (startAt ? startAt.getTime() < now : false);
       const statusUpper = String(b.status || '').toUpperCase();
-      const displayStatus: 'confirmed' | 'pending' | 'cancelled' | 'completed' =
+      const displayStatus: 'confirmed' | 'pending' | 'cancelled' | 'completed' | 'pending_refund' =
         statusUpper === 'CANCELLED'
           ? 'cancelled'
-          : statusUpper === 'COMPLETED'
-            ? 'completed'
-            : statusUpper === 'CONFIRMED'
-              ? 'confirmed'
-              : 'pending';
+          : statusUpper === 'PENDING_REFUND'
+            ? 'pending_refund'
+            : statusUpper === 'COMPLETED'
+              ? 'completed'
+              : statusUpper === 'CONFIRMED'
+                ? 'confirmed'
+                : 'pending';
       const kindLabel = (() => {
         const t = String(b.type || '').toLowerCase().replace('_', ' ');
         return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
@@ -106,13 +108,20 @@ export function MatchesScreen() {
         fieldName: b.field?.name || 'Field',
         date: startAt ? startAt.toISOString() : new Date().toISOString(),
         time: startAt ? startAt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '',
-        squad: '',
+        squad: (() => {
+          const links = Array.isArray(b.squads) ? b.squads : [];
+          const home = links.find((s: any) => s.side === 'HOME')?.squad;
+          const away = links.find((s: any) => s.side === 'AWAY')?.squad;
+          if (away && home) return `${home.emoji || ''} ${home.name} vs ${away.emoji || ''} ${away.name}`.trim();
+          if (home) return `${home.emoji || ''} ${home.name}`.trim();
+          return '';
+        })(),
         status: displayStatus,
         kindLabel,
         slotsLabel,
         raw: b,
       };
-      if (isPast || statusUpper === 'COMPLETED' || statusUpper === 'CANCELLED') past.push(match);
+      if (isPast || statusUpper === 'COMPLETED' || statusUpper === 'CANCELLED' || statusUpper === 'PENDING_REFUND') past.push(match);
       else upcoming.push(match);
     }
     return { upcomingMatches: upcoming, pastMatches: past };

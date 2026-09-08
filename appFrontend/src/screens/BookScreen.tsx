@@ -229,6 +229,10 @@ export function BookScreen({ navigation, route }: BookScreenProps) {
                       <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#fecaca' }}>
                         <Text style={{ color: '#991b1b', fontWeight: '700', fontSize: 13 }}>Cancelled</Text>
                       </View>
+                    ) : String(b.status || '').toUpperCase() === 'PENDING_REFUND' ? (
+                      <View style={{ backgroundColor: '#ffedd5', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#fed7aa' }}>
+                        <Text style={{ color: '#9a3412', fontWeight: '700', fontSize: 13 }}>Pending refund</Text>
+                      </View>
                     ) : String(b.status || '').toUpperCase() === 'COMPLETED' ? (
                       <View style={{ backgroundColor: '#e0f2fe', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: '#bae6fd' }}>
                         <Text style={{ color: '#075985', fontWeight: '700', fontSize: 13 }}>Completed</Text>

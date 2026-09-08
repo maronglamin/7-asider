@@ -20,22 +20,26 @@ type UserResponse = {
 
 export default function UserInfoScreen() {
   const navigation = useNavigation();
-  const { token } = useAuth() as any;
+  const { token, updateUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<UserResponse | null>(null);
   const [usernameInput, setUsernameInput] = useState('');
+  const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
   const usernameLocked = !!user?.username;
   const canSave = useMemo(() => {
-    const next = usernameInput.trim();
-    if (!token) return false;
-    if (usernameLocked) return false;
-    if (next.length < 3) return false;
-    if (!/^[-_.a-zA-Z0-9]{3,20}$/.test(next)) return false;
-    if (user && (user.username || '') === next) return false;
-    return true;
-  }, [token, usernameInput, user, usernameLocked]);
+    if (!token || !user) return false;
+    const nextName = nameInput.trim();
+    const nextUsername = usernameInput.trim();
+    const nameChanged = nextName.length >= 2 && nextName !== (user.name || '').trim();
+    const usernameChanged =
+      !usernameLocked &&
+      nextUsername.length >= 3 &&
+      /^[-_.a-zA-Z0-9]{3,20}$/.test(nextUsername) &&
+      nextUsername !== (user.username || '');
+    return nameChanged || usernameChanged;
+  }, [token, usernameInput, nameInput, user, usernameLocked]);
 
   useEffect(() => {
     (async () => {
@@ -48,6 +52,7 @@ export default function UserInfoScreen() {
         const data = await apiGetAuth<UserResponse>('/auth/me', token as string);
         setUser(data);
         setUsernameInput(data.username || '');
+        setNameInput(data.name || '');
       } catch (e: any) {
         setError(e.message || 'Failed to load user');
       } finally {
@@ -61,14 +66,24 @@ export default function UserInfoScreen() {
     try {
       setSaving(true);
       setError(null);
+      const payload: { username?: string; name?: string } = {};
       const nextUsername = usernameInput.trim();
-      if (nextUsername === (user.username || '')) {
+      const nextName = nameInput.trim();
+      if (!usernameLocked && nextUsername && nextUsername !== (user.username || '')) {
+        payload.username = nextUsername;
+      }
+      if (nextName && nextName !== (user.name || '').trim()) {
+        payload.name = nextName;
+      }
+      if (Object.keys(payload).length === 0) {
         setSaving(false);
         return;
       }
-      const updated = await apiPatchAuth<UserResponse>('/auth/me', { username: nextUsername }, token as string);
+      const updated = await apiPatchAuth<UserResponse>('/auth/me', payload, token as string);
       setUser(updated);
       setUsernameInput(updated.username || '');
+      setNameInput(updated.name || '');
+      updateUser({ name: updated.name, username: updated.username });
     } catch (e: any) {
       setError(e.message || 'Failed to save');
     } finally {
@@ -109,7 +124,16 @@ export default function UserInfoScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Account</Text>
             <View style={styles.card}>
-              <InfoRow label="Name" value={user?.name || '—'} />
+              <View style={styles.editRow}>
+                <Text style={styles.rowLabel}>Name</Text>
+                <TextInput
+                  value={nameInput}
+                  onChangeText={setNameInput}
+                  placeholder="Your full name"
+                  autoCapitalize="words"
+                  style={styles.input}
+                />
+              </View>
               <InfoRow label="Email" value={user?.email || '—'} />
               {usernameLocked ? (
                 <InfoRow label="Username" value={user?.username || '—'} />
@@ -128,14 +152,10 @@ export default function UserInfoScreen() {
               <InfoRow label="Signup Method" value={user?.provider || '—'} />
               <InfoRow label="Joined" value={new Date(user!.createdAt).toLocaleString()} />
             </View>
-            {usernameLocked ? null : (
-              <>
-                <TouchableOpacity onPress={onSave} disabled={!canSave || saving} style={[styles.saveButton, (!canSave || saving) && styles.saveDisabled]}>
-                  <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save Username'}</Text>
-                </TouchableOpacity>
-                {error ? <Text style={styles.errorInline}>{error}</Text> : null}
-              </>
-            )}
+            <TouchableOpacity onPress={onSave} disabled={!canSave || saving} style={[styles.saveButton, (!canSave || saving) && styles.saveDisabled]}>
+              <Text style={styles.saveText}>{saving ? 'Saving...' : 'Save changes'}</Text>
+            </TouchableOpacity>
+            {error ? <Text style={styles.errorInline}>{error}</Text> : null}
           </View>
         </ScrollView>
       )}

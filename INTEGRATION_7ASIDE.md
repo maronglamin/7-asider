@@ -121,12 +121,19 @@ Merchant wallet credentials (APS / Wave / Yonna) are entered by the **Easypay pl
 - **201** — new order  
 - **200** — same `partnerExternalBookingId` still pending (same order returned)
 
-**Body:** `partnerExternalBookingId` (string), `amountGmd` (positive number), optional `currency` (default `GMD`), optional `category` (booked field name).
+**Body:** `partnerExternalBookingId` (string), `amountGmd` (positive number), optional `currency` (default `GMD`), optional `category` (max 120 characters).
+
+7-aside sends **`category` as the name of the field receiving the payment**. DirectPay stores it on the order, suffixes the checkout line name (`Partner app checkout — {field name}`), and echoes it on payment webhooks.
 
 ```typescript
 async function createEasypayOrder(
   businessId: string,
-  input: { partnerExternalBookingId: string; amountGmd: number; currency?: string; category?: string },
+  input: {
+    partnerExternalBookingId: string;
+    amountGmd: number;
+    currency?: string;
+    category?: string;
+  },
 ) {
   const res = await fetch(
     `${EASYPAY_API_BASE_URL}/api/internal-partner/v1/businesses/${encodeURIComponent(businessId)}/orders`,
@@ -148,6 +155,7 @@ async function createEasypayOrder(
     total: number;
     currency: string;
     partnerExternalBookingId: string | null;
+    category: string | null;
   };
 }
 ```

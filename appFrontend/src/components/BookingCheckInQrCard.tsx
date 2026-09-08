@@ -15,7 +15,7 @@ type Props = {
 export function BookingCheckInQrCard({ bookingId, paymentStatus, bookingStatus, token }: Props) {
   const status = String(bookingStatus || '').toUpperCase();
   const paid = isBookingPaid(paymentStatus);
-  const cancelled = status === 'CANCELLED';
+  const cancelled = status === 'CANCELLED' || status === 'PENDING_REFUND';
   const completed = status === 'COMPLETED';
   const [payload, setPayload] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);

@@ -6,10 +6,13 @@ import cors from 'cors';
 import helmet from 'helmet';
 import authRoutes from './routes/auth';
 import emailAuthRoutes from './routes/auth.email';
+import otpAuthRoutes from './routes/auth.otp';
+import appLockRoutes from './routes/appLock';
 import appRoutes from './routes/app';
 import fieldKycRoutes from './routes/fieldKyc';
 import bookingRoutes from './routes/bookings';
 import bookingsRoutes from './routes/bookings';
+import squadsRoutes from './routes/squads';
 import adminRoutes from './routes/admin';
 import payoutsRoutes from './routes/payouts';
 import easypayRoutes from './routes/easypay';
@@ -32,6 +35,9 @@ const SENSITIVE_BODY_KEYS = new Set([
   'accessToken',
   'otp',
   'pin',
+  'code',
+  'secret',
+  'currentSecret',
   'temporaryPassword',
 ]);
 
@@ -107,10 +113,13 @@ app.get('/health', (_req: Request, res: Response) => {
 
 app.use('/auth', authRateLimiter, authRoutes);
 app.use('/auth', authRateLimiter, emailAuthRoutes);
+app.use('/auth', authRateLimiter, otpAuthRoutes);
+app.use('/auth', authRateLimiter, appLockRoutes);
 app.use('/app', appRoutes);
 app.use('/fields/kyc', fieldKycRoutes);
 app.use('/bookings', bookingRoutes);
 app.use('/fields/bookings', bookingsRoutes);
+app.use('/squads', squadsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/payouts', payoutsRoutes);
 app.use('/easypay', easypayRoutes);

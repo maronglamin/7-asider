@@ -212,17 +212,23 @@ export default function OwnerBookingsScreen() {
       if (s === 'PENDING') return { bg: '#fef3c7', fg: '#92400e' };
       if (s === 'COMPLETED') return { bg: '#e0f2fe', fg: '#075985' };
       if (s === 'CANCELLED') return { bg: '#fee2e2', fg: '#991b1b' };
+      if (s === 'PENDING_REFUND') return { bg: '#ffedd5', fg: '#9a3412' };
       return { bg: '#e5e7eb', fg: '#374151' };
     })();
 
-    const canMarkPaid = String(item.paymentStatus || '').toUpperCase() !== 'PAID';
+    const statusUpper = String(item.status || '').toUpperCase();
+    const canMarkPaid = String(item.paymentStatus || '').toUpperCase() !== 'PAID'
+      && statusUpper !== 'CANCELLED'
+      && statusUpper !== 'PENDING_REFUND';
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OwnerBookingDetail', { booking: item })}>
         <View style={styles.imageWrap}>
           <Image source={{ uri: img }} style={styles.image} />
           <View style={[styles.badgePill, { backgroundColor: statusStyle.bg, borderColor: statusStyle.fg }]}>
-            <Text style={[styles.badgePillText, { color: statusStyle.fg }]}>{String(item.status || '').toUpperCase()}</Text>
+            <Text style={[styles.badgePillText, { color: statusStyle.fg }]}>
+              {String(item.status || '').toUpperCase().replace(/_/g, ' ')}
+            </Text>
           </View>
         </View>
         <View style={styles.body}>
@@ -242,7 +248,15 @@ export default function OwnerBookingsScreen() {
           </View>
           <Text style={styles.customer} numberOfLines={1}>By: {item.user?.name || item.user?.email || item.userId}</Text>
           <View style={{ marginTop: 8 }}>
-            {!canMarkPaid ? (
+            {statusUpper === 'PENDING_REFUND' ? (
+              <View style={{ backgroundColor: '#ffedd5', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#9a3412', fontWeight: '800' }}>Pending refund</Text>
+              </View>
+            ) : statusUpper === 'CANCELLED' ? (
+              <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#991b1b', fontWeight: '800' }}>Cancelled</Text>
+              </View>
+            ) : !canMarkPaid ? (
               <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
               </View>
@@ -296,7 +310,7 @@ export default function OwnerBookingsScreen() {
         <View style={styles.recentRowMain}>
           <Text style={styles.recentTitle} numberOfLines={1}>{field?.name || 'Field'}</Text>
           <Text style={styles.recentSub} numberOfLines={1}>
-            {start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {String(item.status || '').toUpperCase()}
+            {start.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })} · {String(item.status || '').toUpperCase().replace(/_/g, ' ')}
           </Text>
         </View>
         <View style={styles.recentRowRight}>
@@ -331,7 +345,7 @@ export default function OwnerBookingsScreen() {
         <Text style={styles.overviewTitle}>Bookings overview</Text>
         <Text style={styles.overviewDateLine}>{overviewContextLine}</Text>
         <Text style={styles.overviewFootnote}>
-          Slot start in range · Cancelled excluded from totals
+          Slot start in range · Cancelled and pending refund excluded from totals
         </Text>
 
         {!filtersOpen ? (

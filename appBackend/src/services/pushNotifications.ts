@@ -34,7 +34,7 @@ export function getVapidPublicKeyForClient(): string | null {
   return k.length ? k : null;
 }
 
-export type BookingPushOpenAs = 'owner' | 'customer';
+export type BookingPushOpenAs = 'owner' | 'customer' | 'challenge' | 'squad';
 
 export type BookingPushData = {
   type: string;
@@ -42,15 +42,26 @@ export type BookingPushData = {
   openAs: BookingPushOpenAs;
 };
 
-function pushDataForTransport(data: BookingPushData): Record<string, string> {
-  return {
-    type: String(data.type),
-    bookingId: String(data.bookingId),
-    openAs: data.openAs === 'customer' ? 'customer' : 'owner',
+export type AppPushData = {
+  type: string;
+  bookingId?: string;
+  openAs?: BookingPushOpenAs;
+  squadId?: string;
+  challengeToken?: string;
+};
+
+function pushDataForTransport(data: AppPushData): Record<string, string> {
+  const out: Record<string, string> = {
+    type: String(data.type || ''),
   };
+  if (data.bookingId) out.bookingId = String(data.bookingId);
+  if (data.openAs) out.openAs = String(data.openAs);
+  if (data.squadId) out.squadId = String(data.squadId);
+  if (data.challengeToken) out.challengeToken = String(data.challengeToken);
+  return out;
 }
 
-async function sendPushToUser(userId: string, title: string, body: string, data: BookingPushData) {
+export async function sendPushToUser(userId: string, title: string, body: string, data: AppPushData) {
   const devices = await prisma.pushDevice.findMany({
     where: { userId },
     select: { id: true, channel: true, token: true },
@@ -238,4 +249,37 @@ export async function notifyBookingCancelledPushes(params: {
     bookingId: String(bookingId),
     openAs: 'customer',
   });
+}
+
+export async function notifyOwnerCancelledBookingPushes(params: {
+  bookerUserId: string;
+  fieldName: string;
+  bookingId: string;
+  pendingRefund: boolean;
+}): Promise<void> {
+  const { bookerUserId, fieldName, bookingId, pendingRefund } = params;
+  const field = fieldName || 'Field';
+  if (pendingRefund) {
+    await sendPushToUser(
+      bookerUserId,
+      'Refund pending',
+      `The field owner cancelled your booking at "${field}". A refund is pending.`,
+      {
+        type: 'BOOKING_PENDING_REFUND',
+        bookingId: String(bookingId),
+        openAs: 'customer',
+      },
+    );
+    return;
+  }
+  await sendPushToUser(
+    bookerUserId,
+    'Booking cancelled',
+    `The field owner cancelled your booking at "${field}".`,
+    {
+      type: 'BOOKING_CANCELLED',
+      bookingId: String(bookingId),
+      openAs: 'customer',
+    },
+  );
 }

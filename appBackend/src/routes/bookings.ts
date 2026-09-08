@@ -9,6 +9,7 @@ import {
   cancelEasypayOrder,
   completeEasypayApsWallet,
   createEasypayOrder,
+  easypayOrderCategoryFromFieldName,
   getEasypayPartnerConfig,
   listEasypayWallets,
   easypayGatewayCodeNeedsPayerPhone,
@@ -24,6 +25,8 @@ import {
   sanitizeBookingMetadata,
   withCheckInToken,
 } from '../utils/bookingCheckIn';
+import { bookingSquadInclude, findMembership, serializeBookingSquads, userCanViewBooking } from '../utils/squads';
+import { notifySquadFixture } from '../services/squadNotifications';
 
 const router = Router();
 
@@ -46,11 +49,6 @@ function clampHour(n: any): number {
   const x = Number(n);
   if (!isFinite(x)) return 0;
   return Math.min(23, Math.max(0, Math.floor(x)));
-}
-
-function bookedFieldCategory(booking: { field?: { name?: string | null } | null }): string | undefined {
-  const name = typeof booking.field?.name === 'string' ? booking.field.name.trim() : '';
-  return name || undefined;
 }
 
 function mergeBookingEasypayMetadata(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {
@@ -82,17 +80,19 @@ async function ensureEasypayOrderIdOnBooking(
   if (!Number.isFinite(amountGmd) || amountGmd <= 0) {
     throw new Error('Invalid booking amount for Easypay order');
   }
+  const category = easypayOrderCategoryFromFieldName(booking.field?.name);
   const order = await createEasypayOrder(ownerBusinessId, {
     partnerExternalBookingId: bookingId,
     amountGmd,
     currency: booking.currency || 'GMD',
-    category: bookedFieldCategory(booking),
+    ...(category ? { category } : {}),
   });
   latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
     businessId: ownerBusinessId,
     orderId: order.id,
     orderPublicCode: order.publicCode,
     orderStatus: order.status,
+    category: order.category ?? category ?? null,
     lastPrepareAt: new Date().toISOString(),
   });
   await (prisma as any).booking.update({
@@ -180,9 +180,23 @@ function buildBookingPlan(input: any, field: any, opts?: { allowNonApprovedField
 
 /** Slot conflicts use BookingUnit rows; only PENDING/CONFIRMED bookings should hold slots. */
 const ACTIVE_BOOKING_STATUSES = ['PENDING', 'CONFIRMED'] as const;
+const SLOT_RELEASED_STATUSES = ['CANCELLED', 'COMPLETED', 'PENDING_REFUND'] as const;
+const NON_MANAGEABLE_STATUSES = ['CANCELLED', 'COMPLETED', 'PENDING_REFUND'] as const;
+
+function bookingStatusUpper(status: unknown): string {
+  return String(status || '').toUpperCase();
+}
+
+function isPaidBooking(paymentStatus: unknown): boolean {
+  return String(paymentStatus || '').toUpperCase() === 'PAID';
+}
+
+function isNonManageableBookingStatus(status: unknown): boolean {
+  return (NON_MANAGEABLE_STATUSES as readonly string[]).includes(bookingStatusUpper(status));
+}
 
 /**
- * Remove BookingUnit rows for CANCELLED/COMPLETED bookings that occupy the given slots,
+ * Remove BookingUnit rows for inactive bookings that occupy the given slots,
  * so the unique (fieldId, date, hourStart) constraint can accept a new reservation.
  */
 async function deleteStaleBookingUnitsForSlots(
@@ -194,7 +208,7 @@ async function deleteStaleBookingUnitsForSlots(
   await tx.bookingUnit.deleteMany({
     where: {
       fieldId,
-      booking: { status: { in: ['CANCELLED', 'COMPLETED'] } },
+      booking: { status: { in: [...SLOT_RELEASED_STATUSES] } },
       OR: units.map((u) => ({ date: u.date, hourStart: u.hourStart })),
     },
   });
@@ -208,7 +222,8 @@ async function deleteStaleBookingUnitsForSlots(
 router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
-    const { fieldId } = req.body as any;
+    const { fieldId, squadId: squadIdRaw } = req.body as any;
+    const squadId = typeof squadIdRaw === 'string' && squadIdRaw.trim() ? squadIdRaw.trim() : '';
 
     if (!fieldId) return res.status(400).json({ error: 'fieldId is required' });
     console.log('[POST /bookings] user:', userId, 'body:', req.body);
@@ -223,6 +238,16 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
       },
     });
     if (!field) return res.status(404).json({ error: 'Field not found' });
+
+    let homeSquad: { id: string; name: string } | null = null;
+    if (squadId) {
+      const membership = await findMembership(squadId, userId);
+      if (!membership) return res.status(403).json({ error: 'Join that squad before booking for them.' });
+      const squad = await (prisma as any).squad.findUnique({ where: { id: squadId }, select: { id: true, name: true } });
+      if (!squad) return res.status(404).json({ error: 'Squad not found' });
+      homeSquad = squad;
+    }
+
     const {
       bookingType,
       units,
@@ -264,6 +289,12 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
         skipDuplicates: false, // rely on unique constraint to fail on conflict
       });
 
+      if (homeSquad) {
+        await tx.bookingSquad.create({
+          data: { bookingId: booking.id, squadId: homeSquad.id, side: 'HOME' },
+        });
+      }
+
       return booking;
     });
 
@@ -282,6 +313,16 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
       bookingId: result.id,
       bookerLabel,
     }).catch((err) => console.warn('[POST /bookings] booking push failed', err));
+
+    if (homeSquad) {
+      void notifySquadFixture({
+        squadId: homeSquad.id,
+        squadName: homeSquad.name,
+        fieldName: field.name || 'the field',
+        bookingId: result.id,
+        excludeUserId: userId,
+      }).catch((err) => console.warn('[POST /bookings] squad fixture push failed', err));
+    }
 
     res.json({ ok: true, bookingId: result.id, totalAmount });
   } catch (e: any) {
@@ -365,6 +406,9 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
           },
         },
         _count: { select: { PaymentReceipt: true } },
+        squads: {
+          include: { squad: { select: { id: true, name: true, emoji: true, color: true } } },
+        },
       },
     });
 
@@ -378,6 +422,7 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
     const mapped = await Promise.all(
       items.map(async (b: any) => {
         let paymentStatus = b.paymentStatus;
+        let status = b.status;
         if (String(paymentStatus || '').toUpperCase() !== 'PAID') {
           const syncResult = await syncBookingPaymentFromEasypay({
             id: b.id,
@@ -386,14 +431,22 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
             currency: b.currency,
             metadata: b.metadata,
           });
-          if (syncResult === 'paid') paymentStatus = 'PAID';
+          if (syncResult === 'paid') {
+            paymentStatus = 'PAID';
+            if (bookingStatusUpper(status) === 'CANCELLED') status = 'PENDING_REFUND';
+          }
         }
-        const { _count, ...rest } = b;
+        const { _count, squads, ...rest } = b;
         return {
           ...rest,
+          status,
           metadata: sanitizeBookingMetadata(rest.metadata),
           paymentStatus,
           hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
+          squads: (squads || []).map((link: any) => ({
+            side: link.side,
+            squad: link.squad,
+          })),
         };
       }),
     );
@@ -449,7 +502,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
       },
     });
     if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
-    if (['CANCELLED', 'COMPLETED'].includes(String(existing.status).toUpperCase())) {
+    if (isNonManageableBookingStatus(existing.status)) {
       return res.status(400).json({ error: 'This booking can no longer be rescheduled' });
     }
 
@@ -553,7 +606,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
   }
 });
 
-// POST /bookings/:id/cancel
+// POST /bookings/:id/cancel — booker or field owner
 router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
@@ -564,19 +617,29 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
         field: { select: { userId: true, name: true } },
       },
     });
-    if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (!existing) return res.status(404).json({ error: 'Booking not found' });
 
-    if (String(existing.status || '').toUpperCase() === 'CANCELLED') {
-      await (prisma as any).bookingUnit.deleteMany({ where: { bookingId: id } });
-      return res.json({ ok: true });
+    const isBooker = existing.userId === userId;
+    const isOwner = existing.field?.userId === userId;
+    if (!isBooker && !isOwner) return res.status(404).json({ error: 'Booking not found' });
+
+    const statusUpper = bookingStatusUpper(existing.status);
+    if (statusUpper === 'COMPLETED') {
+      return res.status(409).json({ error: 'This booking is already completed.' });
     }
+    if (statusUpper === 'CANCELLED' || statusUpper === 'PENDING_REFUND') {
+      await (prisma as any).bookingUnit.deleteMany({ where: { bookingId: id } });
+      return res.json({ ok: true, status: statusUpper });
+    }
+
+    const paid = isPaidBooking(existing.paymentStatus);
+    const nextStatus = isOwner && paid ? 'PENDING_REFUND' : 'CANCELLED';
 
     const meta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
     const ep = (meta as any).easypay;
     const businessId = ep?.businessId as string | undefined;
     const orderId = ep?.orderId as string | undefined;
-    const unpaid = String(existing.paymentStatus || '').toUpperCase() !== 'PAID';
-    if (unpaid && businessId && orderId && getEasypayPartnerConfig().configured) {
+    if (!paid && businessId && orderId && getEasypayPartnerConfig().configured) {
       try {
         await cancelEasypayOrder(businessId, orderId);
       } catch (e) {
@@ -586,26 +649,37 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
 
     await (prisma as any).$transaction(async (tx: any) => {
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
-      await tx.booking.update({ where: { id }, data: { status: 'CANCELLED' } });
+      await tx.booking.update({ where: { id }, data: { status: nextStatus } });
     });
 
     const ownerId = existing.field?.userId as string | undefined;
     const fieldName = (existing.field?.name as string | undefined) || 'Your field';
-    const booker = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { name: true, email: true },
-    });
-    const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
-    const { notifyBookingCancelledPushes } = await import('../services/pushNotifications');
-    void notifyBookingCancelledPushes({
-      fieldOwnerUserId: ownerId,
-      bookerUserId: userId,
-      fieldName,
-      bookingId: id,
-      bookerLabel,
-    }).catch((err) => console.warn('[POST /bookings/:id/cancel] booking push failed', err));
+    const bookerUserId = existing.userId as string;
+    const { notifyBookingCancelledPushes, notifyOwnerCancelledBookingPushes } = await import('../services/pushNotifications');
 
-    res.json({ ok: true });
+    if (isOwner) {
+      void notifyOwnerCancelledBookingPushes({
+        bookerUserId,
+        fieldName,
+        bookingId: id,
+        pendingRefund: nextStatus === 'PENDING_REFUND',
+      }).catch((err) => console.warn('[POST /bookings/:id/cancel] owner cancel push failed', err));
+    } else {
+      const booker = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, email: true },
+      });
+      const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
+      void notifyBookingCancelledPushes({
+        fieldOwnerUserId: ownerId,
+        bookerUserId: userId,
+        fieldName,
+        bookingId: id,
+        bookerLabel,
+      }).catch((err) => console.warn('[POST /bookings/:id/cancel] booking push failed', err));
+    }
+
+    res.json({ ok: true, status: nextStatus });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to cancel booking' });
   }
@@ -649,7 +723,7 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
       const baseSummaryWhere: any = {
         field: { userId: ownerId },
         ...timeWhere,
-        status: { not: 'CANCELLED' as const },
+        status: { notIn: ['CANCELLED', 'PENDING_REFUND'] },
       };
       const [paidAgg, unpaidAgg] = await Promise.all([
         (prisma as any).booking.aggregate({
@@ -767,12 +841,20 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
         user: { select: { id: true, email: true, name: true } },
         _count: { select: { PaymentReceipt: true } },
         PaymentReceipt: { select: { imageUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+        ...bookingSquadInclude,
+        challenges: {
+          where: { status: { in: ['PENDING', 'ACCEPTED'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, token: true, status: true, expiresAt: true, fromSquadId: true },
+        },
       },
     });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    const isOwner = booking.field.userId === userId;
-    const isBooker = booking.userId === userId;
-    if (!isOwner && !isBooker) return res.status(403).json({ error: 'Not allowed' });
+    const access = await userCanViewBooking(id, userId);
+    const isOwner = access.isOwner;
+    const isBooker = access.isBooker;
+    if (!isOwner && !isBooker && !access.isSquadMember) return res.status(403).json({ error: 'Not allowed' });
 
     // Fallback when directPay → 7-aside webhooks are delayed or misconfigured (common after Wave checkout).
     let paymentBooking = booking;
@@ -805,6 +887,13 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
             user: { select: { id: true, email: true, name: true } },
             _count: { select: { PaymentReceipt: true } },
             PaymentReceipt: { select: { imageUrl: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
+            ...bookingSquadInclude,
+            challenges: {
+              where: { status: { in: ['PENDING', 'ACCEPTED'] } },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+              select: { id: true, token: true, status: true, expiresAt: true, fromSquadId: true },
+            },
           },
         });
         if (!paymentBooking) paymentBooking = booking;
@@ -812,13 +901,38 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
     }
 
     const latest = paymentBooking.PaymentReceipt?.[0] || null;
-    const { _count, PaymentReceipt, ...rest } = paymentBooking;
+    const { _count, PaymentReceipt, squads, challenges, ...rest } = paymentBooking;
+    const statusUpper = bookingStatusUpper(rest.status);
+    const canManage = isBooker && !isNonManageableBookingStatus(statusUpper);
+    const homeLink = (squads || []).find((s: any) => s.side === 'HOME');
+    const hasAway = (squads || []).some((s: any) => s.side === 'AWAY');
+    let isHomeCaptain = false;
+    if (homeLink?.squadId) {
+      const homeMembership = await findMembership(homeLink.squadId, userId);
+      isHomeCaptain = homeMembership?.role === 'CAPTAIN';
+    }
+    const openChallenge = (challenges || []).find((c: any) => c.status === 'PENDING' || c.status === 'ACCEPTED');
+    const canChallenge =
+      Boolean(homeLink) &&
+      !hasAway &&
+      (isBooker || isHomeCaptain) &&
+      !isNonManageableBookingStatus(statusUpper) &&
+      openChallenge?.status !== 'ACCEPTED';
     res.json({
       booking: {
         ...rest,
         metadata: sanitizeBookingMetadata(rest.metadata),
         hasReceipt: Boolean(_count?.PaymentReceipt && _count.PaymentReceipt > 0),
         latestReceiptUrl: latest?.imageUrl || null,
+        squads: serializeBookingSquads(squads),
+        challenge: openChallenge || null,
+        viewer: {
+          isBooker,
+          isOwner,
+          isSquadMember: access.isSquadMember,
+          canManage,
+          canChallenge,
+        },
       },
     });
   } catch (e: any) {
@@ -842,6 +956,9 @@ router.patch('/:id/status', requireAuth, async (req: AuthedRequest, res: Respons
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
     if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    if (isNonManageableBookingStatus(existing.status)) {
+      return res.status(409).json({ error: 'This booking can no longer be completed.' });
+    }
 
     const updated = await (prisma as any).booking.update({ where: { id }, data: { status: 'COMPLETED' } });
     res.json({ ok: true, id: updated.id, status: updated.status });
@@ -868,9 +985,9 @@ router.get('/:id/check-in-code', requireAuth, async (req: AuthedRequest, res: Re
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
     if (booking.userId !== userId) return res.status(403).json({ error: 'Not allowed' });
 
-    const status = String(booking.status || '').toUpperCase();
-    if (status === 'CANCELLED') {
-      return res.status(409).json({ error: 'This booking was cancelled.' });
+    const status = bookingStatusUpper(booking.status);
+    if (status === 'CANCELLED' || status === 'PENDING_REFUND') {
+      return res.status(409).json({ error: status === 'PENDING_REFUND' ? 'This booking is pending a refund.' : 'This booking was cancelled.' });
     }
     if (String(booking.paymentStatus || '').toUpperCase() !== 'PAID') {
       return res.status(409).json({ error: 'Pay for this booking to get a check-in code.' });
@@ -919,9 +1036,9 @@ router.post('/:id/check-in', requireAuth, async (req: AuthedRequest, res: Respon
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
     if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
 
-    const status = String(existing.status || '').toUpperCase();
-    if (status === 'CANCELLED') {
-      return res.status(409).json({ error: 'This booking was cancelled.' });
+    const status = bookingStatusUpper(existing.status);
+    if (status === 'CANCELLED' || status === 'PENDING_REFUND') {
+      return res.status(409).json({ error: status === 'PENDING_REFUND' ? 'This booking is pending a refund.' : 'This booking was cancelled.' });
     }
     if (status === 'COMPLETED') {
       return res.json({ ok: true, id: existing.id, status: 'COMPLETED', alreadyCompleted: true });
@@ -957,6 +1074,10 @@ router.patch('/:id/payment', requireAuth, async (req: AuthedRequest, res: Respon
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
     if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    const existingStatus = bookingStatusUpper(existing.status);
+    if (existingStatus === 'CANCELLED' || existingStatus === 'PENDING_REFUND') {
+      return res.status(409).json({ error: 'This booking can no longer be marked as paid.' });
+    }
     const updated = await (prisma as any).booking.update({
       where: { id },
       data: { paymentStatus: 'PAID' },
@@ -987,6 +1108,9 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       },
     });
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (isNonManageableBookingStatus(booking.status)) {
+      return res.status(409).json({ error: 'This booking can no longer be paid.' });
+    }
     if (String(booking.paymentStatus || '').toUpperCase() !== 'PAID') {
       const syncResult = await syncBookingPaymentFromEasypay({
         id: booking.id,
@@ -1023,11 +1147,12 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
     if (!Number.isFinite(amountGmd) || amountGmd <= 0) {
       return res.status(400).json({ error: 'Invalid booking amount' });
     }
+    const category = easypayOrderCategoryFromFieldName(booking.field?.name);
     const order = await createEasypayOrder(owner.easypayBusinessId, {
       partnerExternalBookingId: booking.id,
       amountGmd,
       currency: booking.currency || 'GMD',
-      category: bookedFieldCategory(booking),
+      ...(category ? { category } : {}),
     });
     const wallets = await listEasypayWallets(owner.easypayBusinessId, order.id);
     console.log('[easypay/prepare] ok', { bookingId: id, orderId: order.id, walletCount: wallets.length });
@@ -1036,6 +1161,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
       orderId: order.id,
       orderPublicCode: order.publicCode,
       orderStatus: order.status,
+      category: order.category ?? category ?? null,
       lastPrepareAt: new Date().toISOString(),
     });
     await (prisma as any).booking.update({
@@ -1051,6 +1177,7 @@ router.post('/:id/easypay/prepare', requireAuth, async (req: AuthedRequest, res:
         status: order.status,
         total: order.total,
         currency: order.currency,
+        category: order.category ?? category ?? null,
       },
       wallets,
       ...(wallets.length === 0
@@ -1105,6 +1232,9 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
       },
     });
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    if (isNonManageableBookingStatus(booking.status)) {
+      return res.status(409).json({ error: 'This booking can no longer be paid.' });
+    }
     if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
       return res.status(400).json({ error: 'This booking is already paid.' });
     }
@@ -1122,11 +1252,12 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
     let latestMeta: unknown = booking.metadata;
     if (!orderId) {
       const amountGmd = Number(booking.totalAmount);
+      const category = easypayOrderCategoryFromFieldName(booking.field?.name);
       const order = await createEasypayOrder(owner.easypayBusinessId, {
         partnerExternalBookingId: booking.id,
         amountGmd,
         currency: booking.currency || 'GMD',
-        category: bookedFieldCategory(booking),
+        ...(category ? { category } : {}),
       });
       orderId = order.id;
       latestMeta = mergeBookingEasypayMetadata(booking.metadata, {
@@ -1134,6 +1265,7 @@ router.post('/:id/easypay/wallet', requireAuth, async (req: AuthedRequest, res: 
         orderId: order.id,
         orderPublicCode: order.publicCode,
         orderStatus: order.status,
+        category: order.category ?? category ?? null,
         lastPrepareAt: new Date().toISOString(),
       });
       await (prisma as any).booking.update({ where: { id }, data: { metadata: latestMeta as any } });
@@ -1203,6 +1335,9 @@ router.post('/:id/easypay/aps/authorize', requireAuth, async (req: AuthedRequest
     if (String(booking.userId) !== String(userId)) {
       return res.status(403).json({ error: 'Only the person who booked can pay for this booking.' });
     }
+    if (isNonManageableBookingStatus(booking.status)) {
+      return res.status(409).json({ error: 'This booking can no longer be paid.' });
+    }
     if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
       return res.status(400).json({ error: 'This booking is already paid.' });
     }
@@ -1267,6 +1402,9 @@ router.post('/:id/easypay/aps/complete', requireAuth, async (req: AuthedRequest,
     if (String(booking.userId) !== String(userId)) {
       return res.status(403).json({ error: 'Only the person who booked can pay for this booking.' });
     }
+    if (isNonManageableBookingStatus(booking.status)) {
+      return res.status(409).json({ error: 'This booking can no longer be paid.' });
+    }
     if (String(booking.paymentStatus || '').toUpperCase() === 'PAID') {
       return res.status(400).json({ error: 'This booking is already paid.' });
     }
@@ -1308,6 +1446,10 @@ router.post('/:id/receipt', requireAuth, upload.single('receipt'), async (req: A
     const id = req.params.id;
     const booking = await (prisma as any).booking.findUnique({ where: { id } });
     if (!booking || booking.userId !== userId) return res.status(404).json({ error: 'Booking not found' });
+    const receiptStatus = bookingStatusUpper(booking.status);
+    if (receiptStatus === 'CANCELLED' || receiptStatus === 'PENDING_REFUND') {
+      return res.status(409).json({ error: 'This booking can no longer accept receipts.' });
+    }
     const file = (req as any).file as any | undefined;
     if (!file) return res.status(400).json({ error: 'receipt file is required' });
     const url = `${imageBaseUrl()}/uploads/receipts/${path.basename(file.path)}`;

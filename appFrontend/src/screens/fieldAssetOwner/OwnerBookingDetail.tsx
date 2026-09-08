@@ -3,8 +3,8 @@ import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Mod
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
-import { ChevronLeft, ScanLine } from 'lucide-react-native';
-import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
+import { ChevronLeft, ScanLine, X } from 'lucide-react-native';
+import { apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { CheckInScannerModal } from '../../components/CheckInScannerModal';
 import { isBookingPaid } from '../../utils/easypayBookerMessages';
@@ -20,6 +20,7 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
   const [payUpdating, setPayUpdating] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [receipts, setReceipts] = useState<any[]>([]);
   const [loadingReceipts, setLoadingReceipts] = useState(false);
@@ -98,9 +99,49 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   }, [paramBooking?.id]);
 
   const paid = isBookingPaid(booking?.paymentStatus);
-  const completed = String(booking?.status || '').toUpperCase() === 'COMPLETED';
-  const cancelled = String(booking?.status || '').toUpperCase() === 'CANCELLED';
-  const canScanCheckIn = Boolean(token && booking?.id && paid && !completed && !cancelled);
+  const statusUpper = String(booking?.status || '').toUpperCase();
+  const completed = statusUpper === 'COMPLETED';
+  const cancelled = statusUpper === 'CANCELLED';
+  const pendingRefund = statusUpper === 'PENDING_REFUND';
+  const inactive = cancelled || pendingRefund;
+  const canScanCheckIn = Boolean(token && booking?.id && paid && !completed && !inactive);
+  const canCancel = Boolean(token && booking?.id && !completed && !inactive);
+
+  const onCancelBooking = () => {
+    if (!token || !booking?.id || cancelling) return;
+    const nextLabel = paid ? 'pending refund' : 'cancelled';
+    Alert.alert(
+      'Cancel this booking?',
+      paid
+        ? 'Payment was received, so this booking will be marked as pending refund and the customer will be notified.'
+        : 'Payment was not received, so this booking will be cancelled and the customer will be notified. The time slots will be released.',
+      [
+        { text: 'Keep booking', style: 'cancel' },
+        {
+          text: 'Cancel booking',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setCancelling(true);
+              const res = await apiPostAuth<{ ok?: boolean; status?: string }>(
+                `/bookings/${booking.id}/cancel`,
+                {},
+                token as string,
+              );
+              const nextStatus = String(res?.status || (paid ? 'PENDING_REFUND' : 'CANCELLED')).toUpperCase();
+              setBooking((prev: any) => (prev ? { ...prev, status: nextStatus } : prev));
+              Alert.alert('Updated', `Booking marked as ${nextLabel}. The customer has been notified.`);
+              void refreshBooking();
+            } catch (e: any) {
+              Alert.alert('Error', e?.message || 'Failed to cancel booking');
+            } finally {
+              setCancelling(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const onMarkPaid = async () => {
     try {
@@ -198,7 +239,9 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
         <View style={{ position: 'relative' }}>
           <Image source={{ uri: image }} style={styles.image} />
           <View style={styles.statusOnImage}>
-            <Text style={styles.statusOnImageText}>{String(booking?.status || '').toUpperCase()}</Text>
+            <Text style={styles.statusOnImageText}>
+              {String(booking?.status || '').toUpperCase().replace(/_/g, ' ')}
+            </Text>
           </View>
         </View>
         <View style={styles.blockRowBetween}>
@@ -246,7 +289,21 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
         <View style={styles.block}>
           <Text style={styles.sectionTitle}>Payment</Text>
           <View style={{ marginBottom: 10 }}>
-            {isBookingPaid(booking?.paymentStatus) ? (
+            {pendingRefund ? (
+              <View style={{ backgroundColor: '#ffedd5', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#9a3412', fontWeight: '800' }}>Pending refund</Text>
+                <Text style={{ color: '#9a3412', fontSize: 12, marginTop: 4 }}>
+                  This booking was cancelled after payment. The customer has been notified that a refund is pending.
+                </Text>
+              </View>
+            ) : cancelled ? (
+              <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
+                <Text style={{ color: '#991b1b', fontWeight: '800' }}>Cancelled</Text>
+                <Text style={{ color: '#991b1b', fontSize: 12, marginTop: 4 }}>
+                  This booking was cancelled. Time slots have been released.
+                </Text>
+              </View>
+            ) : isBookingPaid(booking?.paymentStatus) ? (
               <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
                 <Text style={{ color: '#166534', fontSize: 12, marginTop: 4 }}>
@@ -288,27 +345,42 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
       </ScrollView>
 
       <SafeAreaView edges={["bottom"]} style={styles.footer}>
+        {canCancel ? (
+          <TouchableOpacity
+            disabled={cancelling}
+            style={[styles.cancelBtn, cancelling && { opacity: 0.6 }]}
+            onPress={onCancelBooking}
+          >
+            <X size={16} color="#dc2626" strokeWidth={2.25} />
+            <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling...' : 'Cancel booking'}</Text>
+          </TouchableOpacity>
+        ) : null}
         <View style={styles.buttonsRow}>
           <TouchableOpacity
             disabled={
               payUpdating ||
               paid ||
+              inactive ||
               !booking?.hasReceipt
             }
             style={[
               styles.secondary,
-              (payUpdating || paid || !booking?.hasReceipt) && { opacity: 0.6 },
+              (payUpdating || paid || inactive || !booking?.hasReceipt) && { opacity: 0.6 },
             ]}
             onPress={onMarkPaid}
           >
             <Text style={styles.secondaryText}>
-              {paid
-                ? 'Paid'
-                : !booking?.hasReceipt
-                  ? 'Receipt needed to mark paid'
-                  : payUpdating
-                    ? 'Marking...'
-                    : 'Mark as Paid'}
+              {inactive
+                ? pendingRefund
+                  ? 'Pending refund'
+                  : 'Cancelled'
+                : paid
+                  ? 'Paid'
+                  : !booking?.hasReceipt
+                    ? 'Receipt needed to mark paid'
+                    : payUpdating
+                      ? 'Marking...'
+                      : 'Mark as Paid'}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -316,7 +388,8 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
             style={[styles.primary, styles.scanBtn, !canScanCheckIn && { opacity: 0.6 }]}
             onPress={() => {
               if (!canScanCheckIn) {
-                if (!paid) Alert.alert('Payment needed', 'The guest must pay before you can scan their check-in code.');
+                if (inactive) Alert.alert('Booking closed', pendingRefund ? 'This booking is pending a refund.' : 'This booking was cancelled.');
+                else if (!paid) Alert.alert('Payment needed', 'The guest must pay before you can scan their check-in code.');
                 return;
               }
               setScannerVisible(true);
@@ -377,8 +450,20 @@ const styles = StyleSheet.create({
   value: { fontSize: 14, color: '#111827', fontWeight: '600' },
   total: { fontSize: 18, fontWeight: '800', color: '#16a34a' },
   status: { fontSize: 12, color: '#6b7280' },
-  footer: { backgroundColor: '#ffffff', padding: 16 },
+  footer: { backgroundColor: '#ffffff', padding: 16, gap: 10 },
   buttonsRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cancelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+    borderRadius: 8,
+    paddingVertical: 12,
+  },
+  cancelBtnText: { color: '#dc2626', fontWeight: '800', fontSize: 15 },
   primary: { backgroundColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 14, flex: 1 },
   scanBtn: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   primaryText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },

@@ -42,6 +42,14 @@ export function pickEmailPasswordUser(users: AuthUser[]): AuthUser | undefined {
   );
 }
 
+/** Active account for passwordless email sign-in. Prefers email provider, then any ACTIVE row. */
+export function pickActiveUserForOtp(users: AuthUser[]): AuthUser | undefined {
+  const blocked = users.find((u) => u.status === 'BLOCKED');
+  const active = users.filter((u) => u.status === 'ACTIVE');
+  if (active.length === 0) return blocked;
+  return active.find((u) => u.provider === 'email') || active[0];
+}
+
 export function loginFailureReason(users: AuthUser[]): string {
   if (users.length === 0) return 'Invalid credentials';
   if (users.some((u) => u.provider === 'google' || u.provider === 'apple' || u.provider === 'facebook')) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,148 +6,134 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Image,
   Platform,
-  Modal,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { Search, UserPlus, PlusCircle, Users } from 'lucide-react-native';
+import { Search, PlusCircle, Users } from 'lucide-react-native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { apiGetAuth } from '../api/client';
+import type { SquadSummary } from '../lib/squad-identity';
+import { startingSideCopy } from '../lib/squad-identity';
 
 export function SquadsScreen() {
-  const [showComing, setShowComing] = useState(false);
-  /*
-   Mock data examples (kept for future implementation):
-   const mySquads = [
-     { id: '1', name: 'Thunder FC', members: 12, logo: '⚡' },
-     { id: '2', name: 'Weekend Warriors', members: 8, logo: '⚔️' },
-   ];
-  */
-  const mySquads: any[] = [];
+  const navigation = useNavigation<any>();
+  const { token } = useAuth();
+  const [query, setQuery] = useState('');
+  const [squads, setSquads] = useState<SquadSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  /*
-   Mock data examples (kept for future implementation):
-   const friends = [
-     { id: '1', name: 'John Smith', avatar: 'https://i.pravatar.cc/150?img=1' },
-     { id: '2', name: 'Mike Johnson', avatar: 'https://i.pravatar.cc/150?img=2' },
-     { id: '3', name: 'Sarah Williams', avatar: 'https://i.pravatar.cc/150?img=3' },
-   ];
-  */
-  const friends: any[] = [];
+  const load = useCallback(async (silent = false) => {
+    if (!token) {
+      setSquads([]);
+      setLoading(false);
+      return;
+    }
+    if (!silent) setLoading(true);
+    try {
+      const res = await apiGetAuth<{ items: SquadSummary[] }>('/squads/mine', token);
+      setSquads(res.items || []);
+    } catch {
+      setSquads([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+    }, [load]),
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return squads;
+    return squads.filter((s) => s.name.toLowerCase().includes(q) || (s.emoji || '').includes(q));
+  }, [query, squads]);
 
   return (
     <View style={styles.screen}>
       <StatusBar style="light" />
-      <SafeAreaView edges={["top"]} style={styles.safeTop} />
-      {/* Header */}
+      <SafeAreaView edges={['top']} style={styles.safeTop} />
       <View style={styles.header}>
         <Text style={styles.title}>Squads</Text>
-        
-        {/* Search Bar */}
         <View style={styles.searchContainer}>
           <Search size={20} color="#9ca3af" style={styles.searchIcon} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search squads or friends..."
+            placeholder="Search your squads"
             placeholderTextColor="#9ca3af"
+            value={query}
+            onChangeText={setQuery}
           />
         </View>
       </View>
 
-      <ScrollView style={[styles.content, Platform.OS === 'web' ? { minHeight: 0, minWidth: 0 } : null]} showsVerticalScrollIndicator={false}>
-        {/* Quick Actions */}
+      <ScrollView
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void load(true); }} />}
+      >
         <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.secondaryAction} onPress={() => setShowComing(true)}>
+          <TouchableOpacity style={styles.secondaryAction} onPress={() => navigation.navigate('JoinSquad')}>
             <Search size={24} color="#16a34a" />
             <Text style={styles.secondaryActionText}>Join a Squad</Text>
           </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.primaryAction} onPress={() => setShowComing(true)}>
+          <TouchableOpacity style={styles.primaryAction} onPress={() => navigation.navigate('CreateSquad')}>
             <PlusCircle size={24} color="#ffffff" />
             <Text style={styles.primaryActionText}>Create Squad</Text>
           </TouchableOpacity>
         </View>
 
-        {/* My Squads */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>My Squads</Text>
-          <View style={styles.comingSoonCard}>
-            <Text style={styles.comingSoonTitle}>Coming Soon</Text>
-            <Text style={styles.comingSoonText}>Manage your squads, coordinate matches, and track performance.
-              {"\n"}Release date: Jan 15, 2026
-            </Text>
-          </View>
-          <View style={styles.squadsList}>
-            {mySquads.map((squad) => (
-              <View key={squad.id} style={styles.squadCard}>
-                <View style={styles.squadInfo}>
-                  <View style={styles.squadLogo}>
-                    <Text style={styles.squadLogoText}>{squad.logo}</Text>
-                  </View>
-                  <View style={styles.squadDetails}>
-                    <Text style={styles.squadName}>{squad.name}</Text>
-                    <View style={styles.membersContainer}>
-                      <Users size={16} color="#6b7280" />
-                      <Text style={styles.membersText}>{squad.members} members</Text>
+          {loading ? (
+            <ActivityIndicator color="#16a34a" style={{ marginTop: 16 }} />
+          ) : filtered.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Build your side</Text>
+              <Text style={styles.emptyText}>
+                Create a squad, drop the invite in WhatsApp, and everyone sees the same bookings.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.squadsList}>
+              {filtered.map((squad) => (
+                <View key={squad.id} style={styles.squadCard}>
+                  <View style={styles.squadInfo}>
+                    <View style={[styles.squadLogo, { backgroundColor: squad.color || '#dcfce7' }]}>
+                      <Text style={styles.squadLogoText}>{squad.emoji || '⚽'}</Text>
+                    </View>
+                    <View style={styles.squadDetails}>
+                      <Text style={styles.squadName}>{squad.name}</Text>
+                      <View style={styles.membersContainer}>
+                        <Users size={16} color="#6b7280" />
+                        <Text style={styles.membersText}>
+                          {squad.memberCount} members · {squad.role === 'CAPTAIN' ? 'Captain' : 'Player'}
+                        </Text>
+                      </View>
+                      <Text style={styles.progress}>{startingSideCopy(squad.memberCount || 0)}</Text>
                     </View>
                   </View>
+                  <TouchableOpacity
+                    style={styles.viewButton}
+                    onPress={() => navigation.navigate('SquadDetail', { squadId: squad.id })}
+                  >
+                    <Text style={styles.viewButtonText}>View</Text>
+                  </TouchableOpacity>
                 </View>
-                <TouchableOpacity style={styles.viewButton} onPress={() => setShowComing(true)}>
-                  <Text style={styles.viewButtonText}>View</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          )}
         </View>
-
-        {/* Friends */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Friends</Text>
-            <TouchableOpacity style={styles.addFriendButton} onPress={() => setShowComing(true)}>
-              <UserPlus size={16} color="#16a34a" />
-              <Text style={styles.addFriendText}>Add Friend</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.comingSoonCard}>
-            <Text style={styles.comingSoonTitle}>Coming Soon</Text>
-            <Text style={styles.comingSoonText}>Build your friend list, invite players, and form squads.
-              {"\n"}Release date: Jan 15, 2026
-            </Text>
-          </View>
-          
-          <View style={styles.friendsList}>
-            {friends.map((friend) => (
-              <View key={friend.id} style={styles.friendCard}>
-                <Image source={{ uri: friend.avatar }} style={styles.friendAvatar} />
-                <Text style={styles.friendName}>{friend.name}</Text>
-                <TouchableOpacity style={styles.inviteButton} onPress={() => setShowComing(true)}>
-                  <Text style={styles.inviteButtonText}>Invite</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        </View>
+        <SafeAreaView edges={['bottom']} style={styles.safeBottom} />
       </ScrollView>
-      {/* Coming Soon Bottom Sheet */}
-      <Modal visible={showComing} animationType="slide" transparent>
-        <View style={styles.sheetOverlay}>
-          <TouchableOpacity style={styles.sheetBackdrop} activeOpacity={1} onPress={() => setShowComing(false)} />
-          <View style={styles.sheetContainer}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>Coming Soon</Text>
-            <Text style={styles.sheetSubtitle}>
-              Squads and Friends are almost here. You’ll be able to join squads, create your own, and team up with friends easily.
-            </Text>
-            <Text style={styles.sheetNote}>Expected release: Jan 15, 2026</Text>
-            <TouchableOpacity onPress={() => setShowComing(false)} style={styles.sheetPrimary}>
-              <Text style={styles.sheetPrimaryText}>Got it</Text>
-            </TouchableOpacity>
-            <SafeAreaView edges={["bottom"]} />
-          </View>
-        </View>
-      </Modal>
-      <SafeAreaView edges={["bottom"]} style={styles.safeBottom} />
     </View>
   );
 }
@@ -230,26 +216,11 @@ const styles = StyleSheet.create({
   section: {
     padding: 16,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#111827',
-  },
-  addFriendButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  addFriendText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#16a34a',
+    marginBottom: 12,
   },
   squadsList: {
     gap: 12,
@@ -261,14 +232,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
@@ -281,7 +244,6 @@ const styles = StyleSheet.create({
   squadLogo: {
     width: 48,
     height: 48,
-    backgroundColor: '#dcfce7',
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
@@ -307,6 +269,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
   },
+  progress: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 4,
+  },
   viewButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -316,73 +283,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  friendsList: {
-    gap: 12,
-  },
-  friendCard: {
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  friendAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-  },
-  friendName: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#111827',
-  },
-  inviteButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  inviteButtonText: {
-    color: '#16a34a',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  comingSoonCard: {
+  emptyCard: {
     backgroundColor: '#ffffff',
     borderWidth: 1,
     borderColor: '#e5e7eb',
     borderRadius: 12,
-    padding: 12,
-    marginTop: 8,
+    padding: 16,
   },
-  comingSoonTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 6,
-  },
-  comingSoonText: {
-    fontSize: 12,
-    color: '#6b7280',
-    lineHeight: 18,
-  },
-  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.3)' },
-  sheetBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  sheetContainer: { backgroundColor: '#ffffff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 30 },
-  sheetHandle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: '#e5e7eb', marginBottom: 12 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#111827', textAlign: 'center', marginBottom: 8 },
-  sheetSubtitle: { fontSize: 14, color: '#6b7280', textAlign: 'center', marginBottom: 8, lineHeight: 20 },
-  sheetNote: { fontSize: 12, color: '#9ca3af', textAlign: 'center', marginBottom: 16 },
-  sheetPrimary: { backgroundColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 12 },
-  sheetPrimaryText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },
+  emptyTitle: { fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: 6 },
+  emptyText: { fontSize: 13, color: '#6b7280', lineHeight: 20 },
 });

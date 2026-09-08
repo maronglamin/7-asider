@@ -25,7 +25,10 @@
     ],
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.sevenaside.app"
+      "bundleIdentifier": "com.sevenaside.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Allow 7a-side to use Face ID to unlock the app."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -59,8 +62,9 @@
         "projectId": "394688a9-1f34-4a6b-b27c-7265b4536f1c"
       },
       "API_BASE": "https://seven-aside.phantommetrics.gm",
-      "APP_VERSION": "1.0.2",
-      "APP_BUILD": "36"
+      "APP_PUBLIC_URL": "https://7a-side.phantommetrics.gm",
+      "APP_VERSION": "1.0.3",
+      "APP_BUILD": "37"
     },
     "owner": "phantom-metrics"
   }

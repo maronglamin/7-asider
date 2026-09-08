@@ -4,6 +4,7 @@ import {
   normalizePartnerWebhookEvent,
   pickPartnerWebhookAmount,
   pickPartnerWebhookBookingId,
+  pickPartnerWebhookCategory,
   pickPartnerWebhookPaymentId,
 } from '../services/easypayBookingPayment';
 import { verifyEasypayPartnerWebhook } from '../utils/easypayWebhookVerify';
@@ -65,6 +66,7 @@ export async function handleEasypayPartnerWebhook(req: Request, res: Response) {
         event,
         paymentId,
         webhookAmount: pickPartnerWebhookAmount(body),
+        category: pickPartnerWebhookCategory(body),
         dedupeKey: paymentId ? `${paymentId}:${event}` : null,
       });
       if (result === 'amount_mismatch') {

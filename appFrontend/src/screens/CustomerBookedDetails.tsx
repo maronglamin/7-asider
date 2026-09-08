@@ -9,16 +9,18 @@ import {
   Modal,
   ActivityIndicator,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import * as Animatable from 'react-native-animatable';
-import { ArrowLeft, Calendar, Clock, X, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { ArrowLeft, Calendar, Clock, Swords, X, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { BookedFieldStatusBanner } from '../components/BookedFieldStatusBanner';
 import { BookingCheckInQrCard } from '../components/BookingCheckInQrCard';
 import { isBookingPaid } from '../utils/easypayBookerMessages';
+import { challengeInviteMessage, shareText } from '../lib/squad-share';
 
 interface Props {
   navigation?: any;
@@ -27,15 +29,23 @@ interface Props {
 
 export default function CustomerBookedDetails({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
-  const { token } = useAuth() as any;
+  const { token, user } = useAuth() as any;
   const bookingId = (route?.params?.booking?.id || route?.params?.bookingId) as string | undefined;
   const [booking, setBooking] = useState<any>(route?.params?.booking);
   const field = booking?.field || {};
   const fieldStatus = String(field?.status || '').toUpperCase();
   const canBookAgain = !fieldStatus || fieldStatus === 'APPROVED';
   const bookingStatusUpper = String(booking?.status || '').toUpperCase();
-  const canReschedule = !['CANCELLED', 'COMPLETED'].includes(bookingStatusUpper);
-  const canCancelBooking = Boolean(token && bookingId && !['CANCELLED', 'COMPLETED'].includes(bookingStatusUpper));
+  const viewer = booking?.viewer || {};
+  const isBooker = viewer.isBooker ?? (booking?.userId && user?.id && booking.userId === user.id);
+  const closedStatuses = ['CANCELLED', 'COMPLETED', 'PENDING_REFUND'];
+  const canManage = viewer.canManage ?? Boolean(isBooker && !closedStatuses.includes(bookingStatusUpper));
+  const canReschedule = canManage && !closedStatuses.includes(bookingStatusUpper);
+  const canCancelBooking = Boolean(token && bookingId && canManage && !closedStatuses.includes(bookingStatusUpper));
+  const canChallenge = Boolean(viewer.canChallenge);
+  const squadLinks = Array.isArray(booking?.squads) ? booking.squads : [];
+  const homeSquad = squadLinks.find((s: any) => s.side === 'HOME')?.squad;
+  const awaySquad = squadLinks.find((s: any) => s.side === 'AWAY')?.squad;
 
   type CancelSheetPhase = 'confirm' | 'loading' | 'success' | 'error';
   const [cancelSheetVisible, setCancelSheetVisible] = useState(false);
@@ -47,6 +57,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
   const [loadingReceipts, setLoadingReceipts] = useState(false);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [challengeBusy, setChallengeBusy] = useState(false);
 
   const start = booking?.startAt ? new Date(booking.startAt) : null;
   const end = booking?.endAt ? new Date(booking.endAt) : null;
@@ -120,6 +131,38 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
   const closeCancelSheet = () => {
     if (cancelSheetPhase === 'loading') return;
     setCancelSheetVisible(false);
+  };
+
+  const sendChallenge = async () => {
+    if (!token || !bookingId || !homeSquad?.id) return;
+    setChallengeBusy(true);
+    try {
+      const res = await apiPostAuth<{ ok: boolean; challenge: { token: string } }>(
+        `/squads/${homeSquad.id}/challenges`,
+        { bookingId },
+        token as string,
+      );
+      const tokenValue = res.challenge?.token;
+      if (!tokenValue) throw new Error('Challenge link missing');
+      try {
+        await shareText(
+          challengeInviteMessage({
+            fromName: homeSquad.name,
+            fromEmoji: homeSquad.emoji,
+            fieldName: field?.name,
+            token: tokenValue,
+          }),
+          '7v7 challenge',
+        );
+      } catch {
+        /* cancelled */
+      }
+      Alert.alert('Challenge ready', 'Drop the link in another squad’s chat. Their captain taps to lock in as away.');
+    } catch (e: any) {
+      Alert.alert('Challenge', e?.message || 'Could not create a challenge.');
+    } finally {
+      setChallengeBusy(false);
+    }
   };
 
   const executeCancelBooking = async () => {
@@ -198,12 +241,25 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
         {/* Summary Cards */}
         <View style={styles.summaryBlock}>
           <View style={styles.badgeRow}>
-            <Text style={[styles.badge, styles.statusBadge]}>{String(booking?.status || 'CONFIRMED')}</Text>
+            <Text
+              style={[
+                styles.badge,
+                styles.statusBadge,
+                bookingStatusUpper === 'CANCELLED' && styles.cancelledStatusBadge,
+                bookingStatusUpper === 'PENDING_REFUND' && styles.pendingRefundStatusBadge,
+                bookingStatusUpper === 'COMPLETED' && styles.completedStatusBadge,
+              ]}
+            >
+              {bookingStatusUpper.replace(/_/g, ' ') || 'CONFIRMED'}
+            </Text>
             <Text style={[styles.badge, styles.typeBadge]}>{String(booking?.type || 'HOURLY')}</Text>
             {isBookingPaid(booking?.paymentStatus) ? (
               <Text style={[styles.badge, styles.paidBadge]}>PAID</Text>
             ) : null}
           </View>
+          {bookingStatusUpper === 'PENDING_REFUND' ? (
+            <Text style={styles.refundNote}>The field owner cancelled this booking. A refund is pending.</Text>
+          ) : null}
           <View style={styles.summaryRow}>
             <Calendar size={18} color="#16a34a" />
             <Text style={styles.summaryText}>
@@ -221,12 +277,60 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
           </View>
         </View>
 
-        <BookingCheckInQrCard
-          bookingId={bookingId}
-          paymentStatus={booking?.paymentStatus}
-          bookingStatus={booking?.status}
-          token={token}
-        />
+        {homeSquad ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Squads</Text>
+            <View style={styles.squadVsRow}>
+              <View style={styles.squadVsCard}>
+                <Text style={styles.squadVsEmoji}>{homeSquad.emoji || '⚽'}</Text>
+                <Text style={styles.squadVsName}>{homeSquad.name}</Text>
+                <Text style={styles.squadVsSide}>Home</Text>
+              </View>
+              <Text style={styles.squadVsLabel}>vs</Text>
+              <View style={styles.squadVsCard}>
+                {awaySquad ? (
+                  <>
+                    <Text style={styles.squadVsEmoji}>{awaySquad.emoji || '⚽'}</Text>
+                    <Text style={styles.squadVsName}>{awaySquad.name}</Text>
+                    <Text style={styles.squadVsSide}>Away</Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.squadVsEmoji}>❔</Text>
+                    <Text style={styles.squadVsName}>Open challenge</Text>
+                    <Text style={styles.squadVsSide}>Away</Text>
+                  </>
+                )}
+              </View>
+            </View>
+            {Array.isArray(homeSquad.members) && homeSquad.members.length > 0 ? (
+              <Text style={styles.rosterLine}>
+                {homeSquad.members.map((m: any) => m.name).filter(Boolean).join(' · ')}
+              </Text>
+            ) : null}
+            {canChallenge && !awaySquad ? (
+              <TouchableOpacity style={styles.challengeBtn} onPress={sendChallenge} disabled={challengeBusy}>
+                {challengeBusy ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <>
+                    <Swords size={16} color="#ffffff" />
+                    <Text style={styles.challengeBtnText}>Challenge another squad</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        {isBooker ? (
+          <BookingCheckInQrCard
+            bookingId={bookingId}
+            paymentStatus={booking?.paymentStatus}
+            bookingStatus={booking?.status}
+            token={token}
+          />
+        ) : null}
 
         {/* Hourly Breakdown */}
         {breakdown.length > 0 && (
@@ -248,7 +352,7 @@ export default function CustomerBookedDetails({ navigation, route }: Props) {
         )}
 
         {/* Payment Receipt (if exists) */}
-        {receipts.length > 0 && (
+        {isBooker && receipts.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Payment Receipt</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
@@ -718,6 +822,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#dcfce7',
     color: '#166534',
   },
+  cancelledStatusBadge: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+  },
+  pendingRefundStatusBadge: {
+    backgroundColor: '#ffedd5',
+    color: '#9a3412',
+  },
+  completedStatusBadge: {
+    backgroundColor: '#e0f2fe',
+    color: '#075985',
+  },
+  refundNote: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#9a3412',
+    fontWeight: '600',
+  },
   typeBadge: {
     backgroundColor: '#e0f2fe',
     color: '#075985',
@@ -866,6 +989,37 @@ const styles = StyleSheet.create({
     color: '#111827',
     fontWeight: '800',
   },
+  squadVsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  squadVsCard: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    padding: 12,
+    alignItems: 'center',
+  },
+  squadVsEmoji: { fontSize: 28, marginBottom: 4 },
+  squadVsName: { fontWeight: '700', color: '#111827', textAlign: 'center' },
+  squadVsSide: { color: '#6b7280', fontSize: 12, marginTop: 4 },
+  squadVsLabel: { fontWeight: '800', color: '#16a34a' },
+  rosterLine: { color: '#6b7280', fontSize: 12, marginTop: 10, lineHeight: 18 },
+  challengeBtn: {
+    marginTop: 12,
+    backgroundColor: '#16a34a',
+    borderRadius: 8,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  challengeBtnText: { color: '#ffffff', fontWeight: '700' },
 });
 
 

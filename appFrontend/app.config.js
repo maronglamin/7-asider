@@ -4,6 +4,24 @@ require('dotenv').config();
 const appJson = require('./app.json');
 
 const productionApiBase = 'https://seven-aside.phantommetrics.gm';
+const productionAppPublicUrl = 'https://7a-side.phantommetrics.gm';
+
+function resolveAppPublicUrl() {
+  const raw = String(process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  const profile = process.env.EAS_BUILD_PROFILE || '';
+  if (profile === 'production' || process.env.EAS_BUILD === 'true') {
+    if (!raw || /localhost|127\.0\.0\.1/i.test(raw)) return productionAppPublicUrl;
+  }
+  return raw || productionAppPublicUrl;
+}
+
+function hostFromPublicUrl(url) {
+  try {
+    return new URL(url).host;
+  } catch (_error) {
+    return '7a-side.phantommetrics.gm';
+  }
+}
 
 /** Version / build for Constants — read from app.json (same source Gradle uses via JsonSlurper). */
 function readExpoVersionFromAppJson() {
@@ -15,14 +33,38 @@ function readExpoVersionFromAppJson() {
 }
 
 const { version: appJsonVersion, versionCode: appJsonVersionCode } = readExpoVersionFromAppJson();
+const appPublicUrl = resolveAppPublicUrl();
+const appPublicHost = hostFromPublicUrl(appPublicUrl);
 
 // Prefer .env API_BASE so emulator/dev can hit live server; fallback to production URL (never localhost unless you set API_BASE locally)
 module.exports = ({ config }) => ({
   ...config,
   version: appJsonVersion || config.version,
+  scheme: 'sevenaside',
+  ios: {
+    ...(config.ios || {}),
+    associatedDomains: [`applinks:${appPublicHost}`],
+  },
   android: {
     ...(config.android || {}),
     versionCode: appJsonVersionCode ?? config.android?.versionCode,
+    intentFilters: [
+      {
+        action: 'VIEW',
+        autoVerify: true,
+        data: [
+          { scheme: 'https', host: appPublicHost, pathPrefix: '/join' },
+          { scheme: 'https', host: appPublicHost, pathPrefix: '/challenge' },
+          { scheme: 'https', host: appPublicHost, pathPrefix: '/squad' },
+        ],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
+      {
+        action: 'VIEW',
+        data: [{ scheme: 'sevenaside' }],
+        category: ['BROWSABLE', 'DEFAULT'],
+      },
+    ],
     // Strip broad photo/video storage permissions; gallery uses Android photo picker (no READ_MEDIA_*).
     blockedPermissions: [
       ...(config.android?.blockedPermissions || []),
@@ -34,7 +76,15 @@ module.exports = ({ config }) => ({
   },
   extra: {
     ...(config.extra || {}),
-    API_BASE: process.env.API_BASE || productionApiBase,
+    API_BASE: (() => {
+      const raw = (process.env.API_BASE || '').trim();
+      const profile = process.env.EAS_BUILD_PROFILE || '';
+      if (profile === 'production' || /localhost|127\.0\.0\.1/i.test(raw) && process.env.EAS_BUILD === 'true') {
+        return productionApiBase;
+      }
+      return raw || productionApiBase;
+    })(),
+    APP_PUBLIC_URL: appPublicUrl,
     APP_VERSION: appJsonVersion || config.version || '',
     APP_BUILD: appJsonVersionCode != null ? String(appJsonVersionCode) : '',
     // Web Push: public key only (from .env). Never put WEB_PUSH_VAPID_PRIVATE_KEY here — it must stay server-side only.
@@ -67,6 +117,12 @@ module.exports = ({ config }) => ({
         icon: './assets/icon.png',
         color: '#16a34a',
         sounds: [],
+      },
+    ],
+    [
+      'expo-local-authentication',
+      {
+        faceIDPermission: 'Allow 7a-side to use Face ID to unlock the app.',
       },
     ],
   ],

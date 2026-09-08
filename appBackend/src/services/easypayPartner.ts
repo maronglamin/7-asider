@@ -144,6 +144,16 @@ export async function provisionEasypayTenant(input: {
   return json.data;
 }
 
+/** DirectPay persists this on the order and suffixes the checkout line name with it. */
+export const EASYPAY_ORDER_CATEGORY_MAX_LEN = 120;
+
+/** Use the field that receives the payment as the partner order category. */
+export function easypayOrderCategoryFromFieldName(fieldName?: string | null): string | undefined {
+  const trimmed = String(fieldName || '').trim();
+  if (!trimmed) return undefined;
+  return trimmed.slice(0, EASYPAY_ORDER_CATEGORY_MAX_LEN);
+}
+
 export type EasypayPartnerOrder = {
   id: string;
   publicCode: string;
@@ -151,6 +161,7 @@ export type EasypayPartnerOrder = {
   total: number;
   currency: string;
   partnerExternalBookingId: string | null;
+  category?: string | null;
   paymentStatus?: string;
   paymentId?: unknown;
   [key: string]: unknown;
@@ -175,6 +186,7 @@ function normalizeEasypayOrder(raw: unknown): EasypayPartnerOrder {
     partnerExternalBookingId: (ro.partnerExternalBookingId ?? ro.partner_external_booking_id ?? null) as
       | string
       | null,
+    category: (ro.category ?? ro.partnerOrderCategory ?? ro.partner_order_category ?? null) as string | null,
     paymentStatus: String(ro.paymentStatus ?? ro.payment_status ?? ''),
     paymentId: ro.paymentId ?? ro.payment_id ?? null,
   };
@@ -194,7 +206,7 @@ export async function createEasypayOrder(
   businessId: string,
   input: { partnerExternalBookingId: string; amountGmd: number; currency?: string; category?: string },
 ): Promise<EasypayPartnerOrder> {
-  const category = input.category?.trim();
+  const category = easypayOrderCategoryFromFieldName(input.category);
   const body = {
     partnerExternalBookingId: input.partnerExternalBookingId,
     amountGmd: input.amountGmd,

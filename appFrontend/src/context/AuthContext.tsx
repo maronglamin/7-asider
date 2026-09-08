@@ -1,29 +1,67 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { apiGetAuth } from '../api/client';
 import { deleteAuthStorageItem, getAuthStorageItem, setAuthStorageItem } from '../utils/authStorage';
 import { registerOwnerPushForCurrentSession } from '../utils/registerOwnerPush';
+import { markPendingCredentialPrompt, markSkipNextAppLock } from '../lib/app-lock-storage';
 
-type User = { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } | null;
+export type AuthUser = {
+  id: string;
+  email: string;
+  name?: string | null;
+  username?: string | null;
+  supadmin?: boolean;
+  provider?: string | null;
+  appLockType?: 'pin' | null;
+  hasPassword?: boolean;
+} | null;
 
 type AuthContextType = {
-  user: User;
+  user: AuthUser;
   token: string | null;
-  setAuth: (u: User, t: string) => void;
+  setAuth: (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean }) => void;
+  updateUser: (fields: Partial<NonNullable<AuthUser>>) => void;
+  refreshUser: () => Promise<void>;
   clearAuth: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+export function needsDisplayName(user: AuthUser): boolean {
+  return Boolean(user) && !String(user?.name || '').trim();
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User>(null);
+  const [user, setUser] = useState<AuthUser>(null);
   const [token, setToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
-  const setAuth = (u: User, t: string) => {
+  const persistUser = (next: AuthUser) => {
+    if (!next) {
+      deleteAuthStorageItem('auth_user').catch(() => {});
+      return;
+    }
+    setAuthStorageItem('auth_user', JSON.stringify(next)).catch(() => {});
+  };
+
+  const setAuth = (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean }) => {
     setUser(u);
     setToken(t);
-    setAuthStorageItem('auth_user', JSON.stringify(u)).catch(() => {});
+    persistUser(u);
     setAuthStorageItem('auth_token', t).catch(() => {});
+    if (options?.fromSignIn) {
+      markSkipNextAppLock();
+      markPendingCredentialPrompt();
+    }
+  };
+
+  const updateUser = (fields: Partial<NonNullable<AuthUser>>) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...fields };
+      persistUser(next);
+      return next;
+    });
   };
 
   const clearAuth = () => {
@@ -33,6 +71,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     deleteAuthStorageItem('auth_token').catch(() => {});
   };
 
+  const refreshUser = useCallback(async () => {
+    const storedToken = token || (await getAuthStorageItem('auth_token'));
+    if (!storedToken) {
+      setUser(null);
+      setToken(null);
+      return;
+    }
+    try {
+      const me = await apiGetAuth<NonNullable<AuthUser>>('/auth/me', storedToken);
+      setUser(me);
+      setToken(storedToken);
+      persistUser(me);
+    } catch {
+      setUser(null);
+      setToken(null);
+      deleteAuthStorageItem('auth_user').catch(() => {});
+      deleteAuthStorageItem('auth_token').catch(() => {});
+    }
+  }, [token]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -41,8 +99,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           getAuthStorageItem('auth_token'),
         ]);
         if (u && t) {
-          setUser(JSON.parse(u));
-          setToken(t);
+          try {
+            setUser(JSON.parse(u));
+            setToken(t);
+          } catch {
+            setUser(null);
+            setToken(null);
+          }
+          try {
+            const me = await apiGetAuth<NonNullable<AuthUser>>('/auth/me', t);
+            setUser(me);
+            persistUser(me);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : '';
+            if (/401|unauthorized|session is no longer valid|invalid token/i.test(message)) {
+              setUser(null);
+              setToken(null);
+              deleteAuthStorageItem('auth_user').catch(() => {});
+              deleteAuthStorageItem('auth_token').catch(() => {});
+            }
+          }
         }
       } finally {
         setReady(true);
@@ -59,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token, user?.id]);
 
   return (
-    <AuthContext.Provider value={{ user, token, setAuth, clearAuth }}>
+    <AuthContext.Provider value={{ user, token, setAuth, updateUser, refreshUser, clearAuth }}>
       {ready ? (
         children
       ) : (
@@ -85,5 +161,3 @@ export function useAuth() {
   if (!ctx) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
-
-
