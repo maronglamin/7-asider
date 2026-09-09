@@ -21,18 +21,23 @@ import { ChallengeAcceptScreen } from './src/screens/squads/ChallengeAcceptScree
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { BookingScreen } from './src/screens/BookingScreen';
 import { RegisterFieldScreen, FieldDetailScreen } from './src/screens/fieldKyc';
+import ManageFieldInviteScreen from './src/screens/fieldKyc/ManageFieldInviteScreen';
 import FindFieldScreen from './src/screens/FindFieldScreen';
 import CustomerBookedDetails from './src/screens/CustomerBookedDetails';
 import OwnerBookingsScreen from './src/screens/fieldAssetOwner/OwnerBookingsScreen';
 import OwnerBookingDetail from './src/screens/fieldAssetOwner/OwnerBookingDetail';
+import OwnerBookingStatementScreen from './src/screens/fieldAssetOwner/OwnerBookingStatementScreen';
 import MyFieldsScreen from './src/screens/fieldKyc/MyFieldsScreen';
 import UserInfoScreen from './src/screens/userInfo/UserInfoScreen';
+import DeviceLockScreen from './src/screens/DeviceLockScreen';
 import SuperAdminScreen from './src/screens/admin/SuperAdminScreen';
 import AdminUsersScreen from './src/screens/admin/AdminUsersScreen';
 import AssetOwnersScreen from './src/screens/admin/AssetOwnersScreen';
 import FieldDetailAdminScreen from './src/screens/admin/FieldDetailAdminScreen';
 import AdminBookingsScreen from './src/screens/admin/AdminBookingsScreen';
 import AdminBookingsListScreen from './src/screens/admin/AdminBookingsListScreen';
+import AdminPendingRefundsScreen from './src/screens/admin/AdminPendingRefundsScreen';
+import AdminPendingRefundDetailScreen from './src/screens/admin/AdminPendingRefundDetailScreen';
 import UsersScreen from './src/screens/admin/UsersScreen';
 import ContractInvitationScreen from './src/screens/admin/ContractInvitationScreen';
 import ContractInvitationsListScreen from './src/screens/admin/ContractInvitationsListScreen';
@@ -40,6 +45,10 @@ import BanksWalletsScreen from './src/screens/BanksWalletsScreen';
 import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import ChangePasswordScreen from './src/screens/ChangePasswordScreen';
 import LinkEasypayScreen from './src/screens/LinkEasypayScreen';
+import HelpSupportScreen from './src/screens/support/HelpSupportScreen';
+import SendSupportRequestScreen from './src/screens/support/SendSupportRequestScreen';
+import MyTicketsScreen from './src/screens/support/MyTicketsScreen';
+import SupportTicketDetailScreen from './src/screens/support/SupportTicketDetailScreen';
 
 // Import auth screens
 import { OnboardingScreen } from './src/screens/auth/OnboardingScreen';
@@ -262,6 +271,7 @@ function RootNavigator() {
         <Stack.Screen name="MyFields" component={MyFieldsScreen} />
         <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
         <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />
+        <Stack.Screen name="ManageFieldInvite" component={ManageFieldInviteScreen} />
         <Stack.Screen name="FindField" component={FindFieldScreen} />
         <Stack.Screen name="CreateSquad" component={CreateSquadScreen} />
         <Stack.Screen name="JoinSquad" component={JoinSquadScreen} />
@@ -269,20 +279,28 @@ function RootNavigator() {
         <Stack.Screen name="ChallengeAccept" component={ChallengeAcceptScreen} />
         <Stack.Screen name="CustomerBookedDetails" component={CustomerBookedDetails} />
         <Stack.Screen name="OwnerBookings" component={OwnerBookingsScreen} />
+        <Stack.Screen name="OwnerBookingStatement" component={OwnerBookingStatementScreen} />
         <Stack.Screen name="OwnerBookingDetail" component={OwnerBookingDetail} />
         <Stack.Screen name="UserInfo" component={UserInfoScreen} />
+        <Stack.Screen name="DeviceLock" component={DeviceLockScreen} />
         <Stack.Screen name="SuperAdmin" component={SuperAdminScreen} />
         <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
         <Stack.Screen name="AssetOwners" component={AssetOwnersScreen} />
         <Stack.Screen name="FieldDetailAdmin" component={FieldDetailAdminScreen} />
         <Stack.Screen name="AdminBookings" component={AdminBookingsScreen} />
         <Stack.Screen name="AdminBookingsList" component={AdminBookingsListScreen} />
+        <Stack.Screen name="AdminPendingRefunds" component={AdminPendingRefundsScreen} />
+        <Stack.Screen name="AdminPendingRefundDetail" component={AdminPendingRefundDetailScreen} />
         <Stack.Screen name="Users" component={UsersScreen} />
         <Stack.Screen name="ContractInvitation" component={ContractInvitationScreen} />
         <Stack.Screen name="ContractInvitationsList" component={ContractInvitationsListScreen} />
         <Stack.Screen name="BanksWallets" component={BanksWalletsScreen} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
         <Stack.Screen name="LinkEasypay" component={LinkEasypayScreen} />
+        <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+        <Stack.Screen name="SendSupportRequest" component={SendSupportRequestScreen} />
+        <Stack.Screen name="MyTickets" component={MyTicketsScreen} />
+        <Stack.Screen name="SupportTicketDetail" component={SupportTicketDetailScreen} />
         <Stack.Screen name="DeleteAccount" component={DeleteAccountScreen} />
       </Stack.Navigator>
       <PushDeepLinkHandler />

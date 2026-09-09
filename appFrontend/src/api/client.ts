@@ -1,9 +1,9 @@
 import Constants from 'expo-constants';
+import { getRegisteredDeviceId } from '../utils/device-storage';
+import { collectDeviceInfo, type DeviceInfoPayload } from '../utils/device-info';
 
-// Fallback must be production HTTPS so real device builds never use localhost (which fails off-emulator)
 const PRODUCTION_API_BASE = 'https://seven-aside.phantommetrics.gm';
 export const API_BASE = (Constants?.expoConfig?.extra as any)?.API_BASE || PRODUCTION_API_BASE;
-// Log once so you can confirm in emulator that sign-in/up hit the intended backend
 if (__DEV__) console.log('[API client] API_BASE =', API_BASE);
 
 export function resolveMediaUrl(pathOrUrl?: string | null): string | null {
@@ -12,6 +12,13 @@ export function resolveMediaUrl(pathOrUrl?: string | null): string | null {
   if (!value) return null;
   if (/^https?:\/\//i.test(value)) return value;
   return `${API_BASE}${value.startsWith('/') ? value : `/${value}`}`;
+}
+
+async function withDeviceHeaders(headers: Record<string, string> = {}): Promise<Record<string, string>> {
+  const next = { ...headers };
+  const deviceId = await getRegisteredDeviceId();
+  if (deviceId) next['X-Device-Id'] = deviceId;
+  return next;
 }
 
 export async function apiGet<T>(path: string): Promise<T> {
@@ -26,15 +33,37 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiGetAuth<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'GET',
-    headers: {
+    headers: await withDeviceHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Request failed: ${res.status}`);
   }
   return res.json();
+}
+
+export async function apiGetAuthPdf(
+  path: string,
+  token: string,
+): Promise<{ buffer: ArrayBuffer; filename: string }> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'GET',
+    headers: await withDeviceHeaders({
+      Authorization: `Bearer ${token}`,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Request failed: ${res.status}`);
+  }
+  const disposition = res.headers.get('content-disposition') || '';
+  const matched = disposition.match(/filename="([^"]+)"/);
+  return {
+    buffer: await res.arrayBuffer(),
+    filename: matched?.[1] || '7a-side-booking-statement.pdf',
+  };
 }
 
 export async function apiPost<T>(path: string, body: any): Promise<T> {
@@ -50,13 +79,18 @@ export async function apiPost<T>(path: string, body: any): Promise<T> {
   return res.json();
 }
 
+export async function apiPostWithDevice<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const device = await collectDeviceInfo();
+  return apiPost<T>(path, { ...body, device });
+}
+
 export async function apiPostAuth<T>(path: string, body: any, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: {
+    headers: await withDeviceHeaders({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-    },
+    }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -69,10 +103,9 @@ export async function apiPostAuth<T>(path: string, body: any, token: string): Pr
 export async function apiPostMultipartAuth<T>(path: string, form: FormData, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
-    headers: {
-      // Let fetch set the correct content-type with boundary
+    headers: await withDeviceHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
     body: form,
   });
   if (!res.ok) {
@@ -98,10 +131,10 @@ export async function apiPostMultipartAuth<T>(path: string, form: FormData, toke
 export async function apiPatchAuth<T>(path: string, body: any, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'PATCH',
-    headers: {
+    headers: await withDeviceHeaders({
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
-    },
+    }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -111,23 +144,35 @@ export async function apiPatchAuth<T>(path: string, body: any, token: string): P
   return res.json();
 }
 
+export async function registerCurrentDevice(
+  token: string,
+): Promise<{ device: { id: string } }> {
+  const device = await collectDeviceInfo();
+  return apiPostAuth<{ device: { id: string } }>('/auth/register-device', device, token);
+}
+
+export async function updateDeviceLock(
+  token: string,
+  enabled: boolean,
+  device?: DeviceInfoPayload,
+): Promise<{ user: Record<string, unknown>; device?: { id: string } }> {
+  return apiPatchAuth('/auth/device-lock', { enabled, device }, token);
+}
+
 export async function apiDeleteAuth<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: 'DELETE',
-    headers: {
+    headers: await withDeviceHeaders({
       Authorization: `Bearer ${token}`,
-    },
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `Request failed: ${res.status}`);
   }
-  // Some deletes return empty; try parsing JSON, fallback to ok:true
   try {
     return await res.json();
   } catch {
     return { ok: true } as any;
   }
 }
-
-

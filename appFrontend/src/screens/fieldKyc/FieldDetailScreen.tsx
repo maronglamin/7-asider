@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Image, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, Image, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, useWindowDimensions, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
+import { apiDeleteAuth, apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../../api/client';
 import { ChevronLeft } from 'lucide-react-native';
 
 type RouteParams = { route: { params: { id: string } }, navigation: any };
@@ -27,7 +27,24 @@ type KycRecord = {
   images: KycImage[];
   createdAt?: string;
   updatedAt?: string;
+  role?: 'OWNER' | 'MANAGER';
+  isOwner?: boolean;
 };
+
+type ManagerRow = { id: string; userId: string; name?: string | null; email: string; createdAt: string };
+type PendingInviteRow = { id: string; email: string; expiresAt: string; createdAt: string };
+
+async function confirmAction(title: string, message: string): Promise<boolean> {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.confirm(`${title}\n\n${message}`);
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Continue', onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 export default function FieldDetailScreen({ route, navigation }: any) {
   const { width: windowWidth } = useWindowDimensions();
@@ -41,6 +58,29 @@ export default function FieldDetailScreen({ route, navigation }: any) {
   const [price, setPrice] = useState<string>('');
   const [index, setIndex] = useState(0);
   const sliderRef = useRef<FlatList<KycImage>>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [managers, setManagers] = useState<ManagerRow[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<PendingInviteRow[]>([]);
+  const [managersError, setManagersError] = useState<string | null>(null);
+  const [busyUserId, setBusyUserId] = useState<string | null>(null);
+
+  const isOwner = Boolean(item?.isOwner || item?.role === 'OWNER');
+
+  const loadManagers = async () => {
+    if (!token) return;
+    try {
+      setManagersError(null);
+      const res = await apiGetAuth<{ managers: ManagerRow[]; pendingInvites: PendingInviteRow[] }>(
+        `/fields/kyc/${id}/managers`,
+        token as string,
+      );
+      setManagers(res.managers || []);
+      setPendingInvites(res.pendingInvites || []);
+    } catch (e: any) {
+      setManagersError(e?.message || 'Failed to load managers');
+    }
+  };
 
   const load = async () => {
     try {
@@ -49,6 +89,12 @@ export default function FieldDetailScreen({ route, navigation }: any) {
       setItem(data);
       setPrice(data.pricePerHour != null ? String(Number(data.pricePerHour).toFixed(2)) : '');
       setError(null);
+      if (data.isOwner || data.role === 'OWNER') {
+        await loadManagers();
+      } else {
+        setManagers([]);
+        setPendingInvites([]);
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to load');
     } finally {
@@ -101,6 +147,52 @@ export default function FieldDetailScreen({ route, navigation }: any) {
     }
   };
 
+  const sendInvite = async () => {
+    const email = inviteEmail.trim();
+    if (!email || inviting || !token) return;
+    try {
+      setInviting(true);
+      await apiPostAuth(`/fields/kyc/${id}/managers/invite`, { email }, token as string);
+      setInviteEmail('');
+      await loadManagers();
+      Alert.alert('Invite sent', `We emailed ${email}. They can accept from the link.`);
+    } catch (e: any) {
+      Alert.alert('Could not invite', e?.message || 'Failed to send invite');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const removeManager = async (row: ManagerRow) => {
+    if (!token) return;
+    const ok = await confirmAction('Remove manager', `Remove ${row.email} from this field?`);
+    if (!ok) return;
+    try {
+      setBusyUserId(row.userId);
+      await apiDeleteAuth(`/fields/kyc/${id}/managers/${encodeURIComponent(row.userId)}`, token as string);
+      await loadManagers();
+    } catch (e: any) {
+      Alert.alert('Could not remove', e?.message || 'Failed to remove manager');
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
+  const cancelInvite = async (row: PendingInviteRow) => {
+    if (!token) return;
+    const ok = await confirmAction('Cancel invite', `Cancel the invite to ${row.email}?`);
+    if (!ok) return;
+    try {
+      setBusyUserId(row.id);
+      await apiPostAuth(`/fields/kyc/${id}/managers/invites/${encodeURIComponent(row.id)}/revoke`, {}, token as string);
+      await loadManagers();
+    } catch (e: any) {
+      Alert.alert('Could not cancel', e?.message || 'Failed to cancel invite');
+    } finally {
+      setBusyUserId(null);
+    }
+  };
+
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={styles.safeTop} edges={["top"]}>
@@ -127,6 +219,7 @@ export default function FieldDetailScreen({ route, navigation }: any) {
         </View>
       ) : (
         <View style={{ flex: 1, backgroundColor: '#ffffff' }}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
           {/* Image carousel */}
           <View style={[styles.carouselContainer, { width, height: width * 0.6 }]}>
             <FlatList
@@ -208,7 +301,54 @@ export default function FieldDetailScreen({ route, navigation }: any) {
                 <Text style={styles.saveText}>{saving ? 'Updating...' : 'Update'}</Text>
               </TouchableOpacity>
             </View>
+
+            {item.role === 'MANAGER' ? (
+              <Text style={styles.managerNote}>You manage this field. Payments still go to the owner’s directPay account.</Text>
+            ) : null}
+
+            {isOwner ? (
+              <View style={styles.block}>
+                <Text style={styles.blockLabel}>Managers</Text>
+                <Text style={styles.managerHelp}>Invite someone to run bookings, check-in, and price for this field.</Text>
+                <TextInput
+                  value={inviteEmail}
+                  onChangeText={setInviteEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  placeholder="manager@email.com"
+                  placeholderTextColor="#9ca3af"
+                  style={styles.input}
+                />
+                <TouchableOpacity onPress={() => void sendInvite()} disabled={inviting} style={[styles.saveBtnBlock, inviting && { opacity: 0.6 }]}>
+                  <Text style={styles.saveText}>{inviting ? 'Sending...' : 'Send invite'}</Text>
+                </TouchableOpacity>
+                {managersError ? <Text style={[styles.description, { color: '#991b1b', marginTop: 8 }]}>{managersError}</Text> : null}
+                {managers.map((row) => (
+                  <View key={row.userId} style={styles.managerRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.managerName}>{row.name || row.email}</Text>
+                      {row.name ? <Text style={styles.managerEmail}>{row.email}</Text> : null}
+                    </View>
+                    <TouchableOpacity onPress={() => void removeManager(row)} disabled={busyUserId === row.userId}>
+                      <Text style={styles.removeText}>{busyUserId === row.userId ? '...' : 'Remove'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                {pendingInvites.map((row) => (
+                  <View key={row.id} style={styles.managerRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.managerName}>{row.email}</Text>
+                      <Text style={styles.managerEmail}>Invite pending</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => void cancelInvite(row)} disabled={busyUserId === row.id}>
+                      <Text style={styles.removeText}>{busyUserId === row.id ? '...' : 'Cancel'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : null}
           </View>
+          </ScrollView>
         </View>
       )}
     </KeyboardAvoidingView>
@@ -340,6 +480,40 @@ const styles = StyleSheet.create({
   },
   saveText: {
     color: '#ffffff',
+    fontWeight: '700',
+  },
+  managerNote: {
+    marginTop: 16,
+    fontSize: 13,
+    color: '#166534',
+    lineHeight: 18,
+  },
+  managerHelp: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  managerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  managerName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  managerEmail: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  removeText: {
+    color: '#b91c1c',
     fontWeight: '700',
   },
 });

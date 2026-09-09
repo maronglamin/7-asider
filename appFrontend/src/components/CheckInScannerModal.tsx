@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Linking,
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { X } from 'lucide-react-native';
@@ -27,15 +28,18 @@ export function CheckInScannerModal({ visible, bookingId, token, onClose, onComp
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState('Align the guest QR code inside the frame');
   const lockedRef = useRef(false);
+  const askedRef = useRef(false);
 
   useEffect(() => {
     if (!visible) {
       lockedRef.current = false;
+      askedRef.current = false;
       setBusy(false);
       setHint('Align the guest QR code inside the frame');
       return;
     }
-    if (permission && !permission.granted && permission.canAskAgain) {
+    if (!askedRef.current && permission && !permission.granted && permission.canAskAgain) {
+      askedRef.current = true;
       void requestPermission();
     }
   }, [visible, permission, requestPermission]);
@@ -67,6 +71,12 @@ export function CheckInScannerModal({ visible, bookingId, token, onClose, onComp
   };
 
   const granted = Boolean(permission?.granted);
+  const blocked = Boolean(permission && !permission.granted && permission.canAskAgain === false);
+  const showCamera = visible && granted;
+
+  const openAppSettings = () => {
+    void Linking.openSettings();
+  };
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -79,24 +89,37 @@ export function CheckInScannerModal({ visible, bookingId, token, onClose, onComp
         </SafeAreaView>
 
         <View style={styles.cameraBox}>
-          {granted ? (
+          {showCamera ? (
             <CameraView
               style={StyleSheet.absoluteFill}
               facing="back"
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
               onBarcodeScanned={busy ? undefined : handleScanned}
             />
+          ) : !permission ? (
+            <View style={styles.permissionBox}>
+              <ActivityIndicator size="large" color="#ffffff" />
+              <Text style={styles.permissionText}>Checking camera permission…</Text>
+            </View>
           ) : (
             <View style={styles.permissionBox}>
               <Text style={styles.permissionText}>
-                Camera access is needed to scan the guest check-in code.
+                {blocked
+                  ? 'Camera permission is turned off. Enable Camera in Android Settings to scan the guest check-in code.'
+                  : 'Camera access is needed to scan the guest check-in code.'}
               </Text>
-              <TouchableOpacity style={styles.permissionBtn} onPress={() => void requestPermission()}>
-                <Text style={styles.permissionBtnText}>Allow camera</Text>
+              <TouchableOpacity
+                style={styles.permissionBtn}
+                onPress={() => {
+                  if (blocked) openAppSettings();
+                  else void requestPermission();
+                }}
+              >
+                <Text style={styles.permissionBtnText}>{blocked ? 'Open settings' : 'Allow camera'}</Text>
               </TouchableOpacity>
             </View>
           )}
-          {granted ? <View style={styles.frame} pointerEvents="none" /> : null}
+          {showCamera ? <View style={styles.frame} pointerEvents="none" /> : null}
           {busy ? (
             <View style={styles.busyOverlay}>
               <ActivityIndicator size="large" color="#ffffff" />

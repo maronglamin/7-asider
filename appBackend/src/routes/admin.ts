@@ -2,6 +2,12 @@ import { Router } from 'express';
 import { randomUUID } from 'crypto';
 import { prisma } from '../db/prisma';
 import { AuthedRequest, requireAuth, requireSupadmin } from '../middleware/auth';
+import { clearUserDeviceLock } from '../device/service';
+import {
+  getPendingRefundBooking,
+  listPendingRefundBookings,
+  markBookingRefunded,
+} from '../services/adminRefundReview';
 import {
   CONTRACT_INVITATION_PROPOSAL_FILENAME,
   ContractInvitationTemplateType,
@@ -47,6 +53,9 @@ router.get('/users', requireAuth, requireSupadmin, async (req, res) => {
     const supVal = supParam === '1' || supParam === 'true' ? true : supParam === '0' || supParam === 'false' ? false : undefined;
     const startStr = (req.query.start as string | undefined)?.trim();
     const endStr = (req.query.end as string | undefined)?.trim();
+    const q = String(req.query.q || '').trim();
+    const deviceLockParam = (req.query.deviceLock as string | undefined)?.toLowerCase();
+    const deviceLockOnly = deviceLockParam === '1' || deviceLockParam === 'true';
     const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 50));
     const cursor = (req.query.cursor as string | undefined) || undefined;
 
@@ -67,8 +76,9 @@ router.get('/users', requireAuth, requireSupadmin, async (req, res) => {
       }
     }
 
+    const skipDateDefault = Boolean(q) || deviceLockOnly;
     // Defaults: when no explicit filters are provided
-    if (supVal === undefined && !startDate && !endDate) {
+    if (supVal === undefined && !startDate && !endDate && !skipDateDefault) {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
       const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
@@ -78,7 +88,14 @@ router.get('/users', requireAuth, requireSupadmin, async (req, res) => {
 
     const where: any = {};
     if (supVal !== undefined) where.supadmin = supVal;
-    if (startDate || endDate) {
+    if (deviceLockOnly) where.deviceLockEnabled = true;
+    if (q) {
+      where.OR = [
+        { email: { contains: q, mode: 'insensitive' } },
+        { name: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    if (!skipDateDefault && (startDate || endDate)) {
       where.createdAt = {
         ...(startDate ? { gte: startDate } : {}),
         ...(endDate ? { lte: endDate } : {}),
@@ -90,7 +107,7 @@ router.get('/users', requireAuth, requireSupadmin, async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-      select: { id: true, email: true, name: true, supadmin: true, createdAt: true },
+      select: { id: true, email: true, name: true, supadmin: true, createdAt: true, deviceLockEnabled: true },
     });
     let nextCursor: string | null = null;
     let items = results;
@@ -104,6 +121,29 @@ router.get('/users', requireAuth, requireSupadmin, async (req, res) => {
   } catch (e: any) {
     console.error('Error in GET /admin/users:', e?.message || e);
     res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+router.patch('/users/:id/device-lock', requireAuth, requireSupadmin, async (req: AuthedRequest, res) => {
+  try {
+    const userId = String(req.params.id);
+    const enabled = (req.body as { enabled?: unknown })?.enabled;
+    if (enabled !== false) {
+      return res.status(400).json({ error: 'Super admins can only turn device lock off' });
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, deviceLockEnabled: true },
+    });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user.deviceLockEnabled) {
+      return res.status(400).json({ error: 'Device lock is not enabled for this user' });
+    }
+    await clearUserDeviceLock(userId);
+    return res.json({ ok: true, deviceLockEnabled: false });
+  } catch (e: any) {
+    console.error('Error in PATCH /admin/users/:id/device-lock:', e?.message || e);
+    return res.status(500).json({ error: 'Failed to unlock device' });
   }
 });
 
@@ -684,6 +724,44 @@ router.get('/bookings/unpaid', requireAuth, requireSupadmin, async (req, res) =>
   } catch (e: any) {
     console.error('Error in GET /admin/bookings/unpaid', e?.message || e);
     res.status(500).json({ error: 'Failed to fetch unpaid bookings' });
+  }
+});
+
+router.get('/bookings/pending-refunds', requireAuth, requireSupadmin, async (_req, res) => {
+  try {
+    const data = await listPendingRefundBookings();
+    res.json(data);
+  } catch (e: any) {
+    console.error('Error in GET /admin/bookings/pending-refunds', e?.message || e);
+    res.status(500).json({ error: 'Failed to fetch pending refunds' });
+  }
+});
+
+router.get('/bookings/:id', requireAuth, requireSupadmin, async (req, res) => {
+  try {
+    const booking = await getPendingRefundBooking(String(req.params.id));
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    res.json({ booking });
+  } catch (e: any) {
+    console.error('Error in GET /admin/bookings/:id', e?.message || e);
+    res.status(500).json({ error: 'Failed to load booking' });
+  }
+});
+
+router.post('/bookings/:id/mark-refunded', requireAuth, requireSupadmin, async (req: AuthedRequest, res) => {
+  try {
+    const note = typeof (req.body as { note?: unknown })?.note === 'string' ? (req.body as { note: string }).note : '';
+    const booking = await markBookingRefunded({
+      bookingId: String(req.params.id),
+      adminUserId: req.auth!.userId,
+      note,
+    });
+    res.json({ ok: true, booking });
+  } catch (e: any) {
+    const status = Number(e?.status) || 500;
+    if (status < 500) return res.status(status).json({ error: e.message });
+    console.error('Error in POST /admin/bookings/:id/mark-refunded', e?.message || e);
+    res.status(500).json({ error: 'Failed to mark refund complete' });
   }
 });
 

@@ -48,6 +48,7 @@ module.exports = ({ config }) => ({
   android: {
     ...(config.android || {}),
     versionCode: appJsonVersionCode ?? config.android?.versionCode,
+    permissions: [...new Set([...(config.android?.permissions || []), 'android.permission.CAMERA'])],
     intentFilters: [
       {
         action: 'VIEW',
@@ -107,7 +108,8 @@ module.exports = ({ config }) => ({
       {
         photosPermission:
           'To attach photos when uploading payment receipts for bookings or adding images of your field for listing. Photos are only used for these features.',
-        cameraPermission: false,
+        // Do not set cameraPermission: false. That blocks CAMERA globally and
+        // prevents field owners from scanning guest check-in QR codes.
         microphonePermission: false,
       },
     ],

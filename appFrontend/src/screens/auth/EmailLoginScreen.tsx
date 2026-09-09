@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft } from 'lucide-react-native';
-import { apiPost } from '../../api/client';
+import { apiPostWithDevice } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -17,11 +17,12 @@ export function EmailLoginScreen({ navigation }: { navigation?: any }) {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const res = await apiPost<{ token: string; user: { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null } }>(
-        '/auth/login-email',
-        { email: email.trim(), password },
-      );
-      setAuth(res.user, res.token);
+      const res = await apiPostWithDevice<{
+        token: string;
+        user: { id: string; email: string; name?: string; supadmin?: boolean; provider?: string | null };
+        device?: { id: string } | null;
+      }>('/auth/login-email', { email: email.trim(), password });
+      setAuth(res.user, res.token, { fromSignIn: true, deviceId: res.device?.id });
       navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
     } catch (e: any) {
       alert(e.message || 'Login failed');

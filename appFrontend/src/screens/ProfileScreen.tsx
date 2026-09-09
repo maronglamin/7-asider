@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import * as Updates from 'expo-updates';
-import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2, RefreshCw, KeyRound } from 'lucide-react-native';
+import { Wallet, LogOut, Edit, PlusSquare, User, ShieldCheck, Trash2, Lock, Link2, RefreshCw, KeyRound, Smartphone, LifeBuoy } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import { needsDisplayName, useAuth } from '../context/AuthContext';
 import { apiGetAuth, apiPatchAuth } from '../api/client';
@@ -21,7 +21,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 export function ProfileScreen() {
   const { user, clearAuth, token, updateUser } = useAuth();
   const navigation = useNavigation();
-  const [hasKyc, setHasKyc] = useState(false);
+  const [ownsFields, setOwnsFields] = useState(false);
+  const [managesFields, setManagesFields] = useState(false);
   const [updateBusy, setUpdateBusy] = useState(false);
   const [nameInput, setNameInput] = useState('');
   const [savingName, setSavingName] = useState(false);
@@ -78,8 +79,8 @@ export function ProfileScreen() {
       onPress: () => navigation.navigate('MyFields' as never),
     },
     ...(user?.supadmin ? [{ label: 'Super Admin', icon: ShieldCheck, onPress: () => navigation.navigate('SuperAdmin' as never) }] : []),
-    ...(hasKyc ? [{ label: 'Bookings', icon: Wallet, onPress: () => navigation.navigate('OwnerBookings' as never) }] : []),
-    ...(hasKyc
+    ...(ownsFields || managesFields ? [{ label: 'Bookings', icon: Wallet, onPress: () => navigation.navigate('OwnerBookings' as never) }] : []),
+    ...(ownsFields
       ? [{ label: 'Link To directPay', icon: Link2, onPress: () => navigation.navigate('LinkEasypay' as never) }]
       : []),
     {
@@ -88,10 +89,20 @@ export function ProfileScreen() {
       onPress: () => navigation.navigate('UserInfo' as never),
     },
     {
+      label: 'Help & Support',
+      icon: LifeBuoy,
+      onPress: () => navigation.navigate('HelpSupport' as never),
+    },
+    {
       label: user?.appLockType === 'pin' ? 'Change PIN' : 'Set PIN',
       icon: KeyRound,
       onPress: () =>
         navigation.navigate((user?.appLockType === 'pin' ? 'VerifyPin' : 'SetPin') as never),
+    },
+    {
+      label: 'Device lock',
+      icon: Smartphone,
+      onPress: () => navigation.navigate('DeviceLock' as never),
     },
     {
       label: 'Banks & Wallets',
@@ -148,11 +159,17 @@ export function ProfileScreen() {
   useEffect(() => {
     (async () => {
       try {
-        if (!token) { setHasKyc(false); return; }
-        const res = await apiGetAuth<{ exists: boolean }>(`/fields/kyc/me`, token as string);
-        setHasKyc(!!res.exists);
+        if (!token) {
+          setOwnsFields(false);
+          setManagesFields(false);
+          return;
+        }
+        const res = await apiGetAuth<{ exists: boolean; ownsFields?: boolean; managesFields?: boolean }>(`/fields/kyc/me`, token as string);
+        setOwnsFields(!!res.ownsFields || !!res.exists);
+        setManagesFields(!!res.managesFields);
       } catch (_) {
-        setHasKyc(false);
+        setOwnsFields(false);
+        setManagesFields(false);
       }
     })();
   }, [token]);

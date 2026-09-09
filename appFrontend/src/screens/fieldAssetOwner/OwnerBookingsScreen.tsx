@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
   FlatList,
   ActivityIndicator,
   RefreshControl,
@@ -12,10 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, SlidersHorizontal, ChevronDown, ChevronUp, FileText } from 'lucide-react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { apiGetAuth, apiPatchAuth, resolveMediaUrl } from '../../api/client';
+import { apiGetAuth } from '../../api/client';
 
 type DatePreset = 'today' | 'yesterday' | 'week' | 'month';
 type PaymentScope = 'all' | 'paid' | 'unpaid';
@@ -92,7 +91,6 @@ export default function OwnerBookingsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const range = useMemo(() => getRangeForPreset(datePreset), [datePreset]);
 
@@ -199,8 +197,6 @@ export default function OwnerBookingsScreen() {
 
   const renderFullCard = ({ item }: { item: any }) => {
     const field = item.field;
-    const imgRel = field?.images?.[0]?.url;
-    const img = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/600x300?text=Field';
     const start = new Date(item.startAt);
     const end = new Date(item.endAt);
     const hours = Math.max(1, Math.round((+end - +start) / 3600000));
@@ -217,24 +213,19 @@ export default function OwnerBookingsScreen() {
     })();
 
     const statusUpper = String(item.status || '').toUpperCase();
-    const canMarkPaid = String(item.paymentStatus || '').toUpperCase() !== 'PAID'
-      && statusUpper !== 'CANCELLED'
-      && statusUpper !== 'PENDING_REFUND';
+    const paid = String(item.paymentStatus || '').toUpperCase() === 'PAID';
 
     return (
       <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('OwnerBookingDetail', { booking: item })}>
-        <View style={styles.imageWrap}>
-          <Image source={{ uri: img }} style={styles.image} />
-          <View style={[styles.badgePill, { backgroundColor: statusStyle.bg, borderColor: statusStyle.fg }]}>
-            <Text style={[styles.badgePillText, { color: statusStyle.fg }]}>
-              {String(item.status || '').toUpperCase().replace(/_/g, ' ')}
-            </Text>
-          </View>
-        </View>
         <View style={styles.body}>
           <View style={styles.cardHeaderRow}>
             <Text style={styles.title} numberOfLines={1}>{field?.name || 'Field'}</Text>
             <Text style={styles.priceRight}>{formatDalasi(Number(item.totalAmount))}</Text>
+          </View>
+          <View style={[styles.badgePill, { backgroundColor: statusStyle.bg, borderColor: statusStyle.fg }]}>
+            <Text style={[styles.badgePillText, { color: statusStyle.fg }]}>
+              {String(item.status || '').toUpperCase().replace(/_/g, ' ')}
+            </Text>
           </View>
           <Text style={styles.sub} numberOfLines={1}>{field?.address || field?.city || ''}</Text>
           <View style={styles.chipsRow}>
@@ -256,36 +247,9 @@ export default function OwnerBookingsScreen() {
               <View style={{ backgroundColor: '#fee2e2', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#991b1b', fontWeight: '800' }}>Cancelled</Text>
               </View>
-            ) : !canMarkPaid ? (
+            ) : paid ? (
               <View style={{ backgroundColor: '#dcfce7', paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8, alignSelf: 'flex-start' }}>
                 <Text style={{ color: '#166534', fontWeight: '800' }}>Paid</Text>
-              </View>
-            ) : item?.hasReceipt ? (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                {item.latestReceiptUrl ? (
-                  <Image source={{ uri: resolveMediaUrl(item.latestReceiptUrl) || undefined }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: '#f3f4f6' }} />
-                ) : null}
-                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <Text style={{ color: '#166534', fontWeight: '800' }}>Receipt uploaded</Text>
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        setUpdatingId(item.id);
-                        await apiPatchAuth(`/bookings/${item.id}/payment`, {}, token as string);
-                        const patch = (rows: any[]) => rows.map((it) => (it.id === item.id ? { ...it, paymentStatus: 'PAID' } : it));
-                        setListItems((prev) => patch(prev));
-                        setRecentItems((prev) => patch(prev));
-                        await fetchReport();
-                      } finally {
-                        setUpdatingId(null);
-                      }
-                    }}
-                    style={{ backgroundColor: '#16a34a', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, opacity: updatingId === item.id ? 0.6 : 1 }}
-                    disabled={updatingId === item.id}
-                  >
-                    <Text style={{ color: '#ffffff', fontWeight: '800' }}>{updatingId === item.id ? 'Marking...' : 'Mark as Paid'}</Text>
-                  </TouchableOpacity>
-                </View>
               </View>
             ) : (
               <Text style={{ fontSize: 12, color: '#6b7280', fontWeight: '600' }}>Awaiting customer payment (directPay updates automatically)</Text>
@@ -347,6 +311,20 @@ export default function OwnerBookingsScreen() {
         <Text style={styles.overviewFootnote}>
           Slot start in range · Cancelled and pending refund excluded from totals
         </Text>
+        <TouchableOpacity
+          style={styles.statementCta}
+          onPress={() => navigation.navigate('OwnerBookingStatement')}
+          activeOpacity={0.75}
+        >
+          <View style={styles.statementCtaIcon}>
+            <FileText size={18} color="#166534" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.statementCtaTitle}>30-day statement</Text>
+            <Text style={styles.statementCtaSub}>All statuses · Export to PDF</Text>
+          </View>
+          <ChevronRight size={18} color="#16a34a" />
+        </TouchableOpacity>
 
         {!filtersOpen ? (
           <TouchableOpacity
@@ -498,7 +476,13 @@ export default function OwnerBookingsScreen() {
             <Text style={styles.headerTitle}>{viewMode === 'report' ? 'Bookings' : 'All bookings'}</Text>
             {viewMode === 'list' ? <Text style={styles.headerSubtitle}>{range.label} · {paymentLabel}</Text> : null}
           </View>
-          <View style={{ width: 32 }} />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('OwnerBookingStatement')}
+            style={styles.backBtn}
+            accessibilityLabel="Booking statement"
+          >
+            <FileText size={18} color="#ffffff" />
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
       <SafeAreaView style={styles.safeBottom} edges={['bottom']}>
@@ -585,6 +569,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
     lineHeight: 16,
   },
+  statementCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#bbf7d0',
+  },
+  statementCtaIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statementCtaTitle: { fontSize: 15, fontWeight: '600', color: '#166534' },
+  statementCtaSub: { fontSize: 12, color: '#4d7c0f', marginTop: 2 },
 
   filterCollapsed: {
     flexDirection: 'row',
@@ -792,13 +798,11 @@ const styles = StyleSheet.create({
   adjustFiltersBtnText: { color: '#3f3f46', fontWeight: '600', fontSize: 13 },
 
   card: { backgroundColor: '#ffffff', borderRadius: 12, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth, borderColor: '#e4e4e7' },
-  imageWrap: { position: 'relative', height: 140 },
-  image: { width: '100%', height: '100%' },
-  badgePill: { position: 'absolute', top: 8, right: 8, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1 },
+  badgePill: { alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 16, borderWidth: 1 },
   badgePillText: { fontSize: 11, fontWeight: '600' },
   body: { padding: 12 },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  title: { fontSize: 16, fontWeight: '600', color: '#18181b', letterSpacing: -0.1 },
+  title: { flex: 1, fontSize: 16, fontWeight: '600', color: '#18181b', letterSpacing: -0.1 },
   priceRight: { fontSize: 16, fontWeight: '600', color: '#166534' },
   sub: { fontSize: 13, fontWeight: '400', color: '#71717a', marginTop: 2 },
   chipsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },

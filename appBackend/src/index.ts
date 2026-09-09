@@ -10,6 +10,7 @@ import otpAuthRoutes from './routes/auth.otp';
 import appLockRoutes from './routes/appLock';
 import appRoutes from './routes/app';
 import fieldKycRoutes from './routes/fieldKyc';
+import fieldManagerRoutes from './routes/fieldManagers';
 import bookingRoutes from './routes/bookings';
 import bookingsRoutes from './routes/bookings';
 import squadsRoutes from './routes/squads';
@@ -17,6 +18,7 @@ import adminRoutes from './routes/admin';
 import payoutsRoutes from './routes/payouts';
 import easypayRoutes from './routes/easypay';
 import pushRoutes from './routes/push';
+import supportRoutes from './routes/support';
 import { handleEasypayPartnerWebhook } from './routes/easypayWebhook';
 import path from 'path';
 import { assertSecurityEnv, getAllowedOrigins, isLocalDevOrigin } from './config/env';
@@ -117,6 +119,7 @@ app.use('/auth', authRateLimiter, otpAuthRoutes);
 app.use('/auth', authRateLimiter, appLockRoutes);
 app.use('/app', appRoutes);
 app.use('/fields/kyc', fieldKycRoutes);
+app.use('/fields', fieldManagerRoutes); // manage-invite accept/preview
 app.use('/bookings', bookingRoutes);
 app.use('/fields/bookings', bookingsRoutes);
 app.use('/squads', squadsRoutes);
@@ -124,6 +127,7 @@ app.use('/admin', adminRoutes);
 app.use('/payouts', payoutsRoutes);
 app.use('/easypay', easypayRoutes);
 app.use('/push', pushRoutes);
+app.use('/support', supportRoutes);
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {

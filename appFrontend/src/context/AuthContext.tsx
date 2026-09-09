@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { apiGetAuth } from '../api/client';
+import { apiGetAuth, registerCurrentDevice } from '../api/client';
 import { deleteAuthStorageItem, getAuthStorageItem, setAuthStorageItem } from '../utils/authStorage';
 import { registerOwnerPushForCurrentSession } from '../utils/registerOwnerPush';
 import { markPendingCredentialPrompt, markSkipNextAppLock } from '../lib/app-lock-storage';
+import { clearRegisteredDeviceId, setRegisteredDeviceId } from '../utils/device-storage';
 
 export type AuthUser = {
   id: string;
@@ -14,12 +15,16 @@ export type AuthUser = {
   provider?: string | null;
   appLockType?: 'pin' | null;
   hasPassword?: boolean;
+  deviceLockEnabled?: boolean;
+  deviceLockActiveOnThisDevice?: boolean;
+  monthlyDevicesUsed?: number;
+  monthlyDevicesLimit?: number;
 } | null;
 
 type AuthContextType = {
   user: AuthUser;
   token: string | null;
-  setAuth: (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean }) => void;
+  setAuth: (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean; deviceId?: string }) => void;
   updateUser: (fields: Partial<NonNullable<AuthUser>>) => void;
   refreshUser: () => Promise<void>;
   clearAuth: () => void;
@@ -29,6 +34,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function needsDisplayName(user: AuthUser): boolean {
   return Boolean(user) && !String(user?.name || '').trim();
+}
+
+async function syncRegisteredDevice(token: string): Promise<void> {
+  try {
+    const { device } = await registerCurrentDevice(token);
+    if (device?.id) {
+      await setRegisteredDeviceId(device.id);
+    }
+  } catch (error) {
+    console.warn('Failed to register device', error);
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -44,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthStorageItem('auth_user', JSON.stringify(next)).catch(() => {});
   };
 
-  const setAuth = (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean }) => {
+  const setAuth = (u: NonNullable<AuthUser>, t: string, options?: { fromSignIn?: boolean; deviceId?: string }) => {
     setUser(u);
     setToken(t);
     persistUser(u);
@@ -52,6 +68,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (options?.fromSignIn) {
       markSkipNextAppLock();
       markPendingCredentialPrompt();
+    }
+    if (options?.deviceId) {
+      setRegisteredDeviceId(options.deviceId).catch(() => {});
+    } else {
+      void syncRegisteredDevice(t);
     }
   };
 
@@ -69,6 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     deleteAuthStorageItem('auth_user').catch(() => {});
     deleteAuthStorageItem('auth_token').catch(() => {});
+    clearRegisteredDeviceId().catch(() => {});
   };
 
   const refreshUser = useCallback(async () => {
@@ -83,11 +105,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(me);
       setToken(storedToken);
       persistUser(me);
+      await syncRegisteredDevice(storedToken);
     } catch {
       setUser(null);
       setToken(null);
       deleteAuthStorageItem('auth_user').catch(() => {});
       deleteAuthStorageItem('auth_token').catch(() => {});
+      clearRegisteredDeviceId().catch(() => {});
     }
   }, [token]);
 
@@ -110,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             const me = await apiGetAuth<NonNullable<AuthUser>>('/auth/me', t);
             setUser(me);
             persistUser(me);
+            await syncRegisteredDevice(t);
           } catch (error) {
             const message = error instanceof Error ? error.message : '';
             if (/401|unauthorized|session is no longer valid|invalid token/i.test(message)) {
@@ -117,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setToken(null);
               deleteAuthStorageItem('auth_user').catch(() => {});
               deleteAuthStorageItem('auth_token').catch(() => {});
+              clearRegisteredDeviceId().catch(() => {});
             }
           }
         }

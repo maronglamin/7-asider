@@ -94,6 +94,7 @@ export async function userCanViewBooking(bookingId: string, userId: string): Pro
     where: { id: bookingId },
     select: {
       userId: true,
+      fieldId: true,
       field: { select: { userId: true } },
       squads: { select: { squadId: true } },
     },
@@ -103,6 +104,14 @@ export async function userCanViewBooking(bookingId: string, userId: string): Pro
   }
   const isBooker = booking.userId === userId;
   const isOwner = booking.field.userId === userId;
+  let isManager = false;
+  if (!isOwner && booking.fieldId) {
+    const manager = await db.fieldManager.findUnique({
+      where: { fieldId_userId: { fieldId: booking.fieldId, userId } },
+      select: { id: true },
+    });
+    isManager = Boolean(manager);
+  }
   let isSquadMember = false;
   if (booking.squads.length) {
     const membership = await db.squadMember.findFirst({
@@ -114,7 +123,7 @@ export async function userCanViewBooking(bookingId: string, userId: string): Pro
     });
     isSquadMember = Boolean(membership);
   }
-  return { isBooker, isOwner, isSquadMember };
+  return { isBooker, isOwner: isOwner || isManager, isSquadMember };
 }
 
 export const bookingSquadInclude = {

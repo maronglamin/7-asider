@@ -131,6 +131,30 @@ function clampBookingHour(n: number): number {
   return Math.min(23, Math.max(0, Math.floor(n)));
 }
 
+function slotStartUtc(dateKey: string, hour: number): Date {
+  const start = toUtcMidnightDate(dateKey);
+  start.setUTCHours(hour, 0, 0, 0);
+  return start;
+}
+
+function isBookingHourPast(dateKey: string, hour: number, nowMs = Date.now()): boolean {
+  if (!dateKey) return false;
+  return slotStartUtc(dateKey, hour).getTime() <= nowMs;
+}
+
+/** True once the day's last hour has started, so no hourly slot remains. */
+function isCalendarDayFullyPast(dateKey: string, nowMs = Date.now()): boolean {
+  return isBookingHourPast(dateKey, 23, nowMs);
+}
+
+function isDateFrozenForPreset(dateKey: string, duration: DurationPreset, nowMs = Date.now()): boolean {
+  if (!dateKey) return false;
+  const needsFullDay = duration === 'day' || duration === '2d' || duration === '3d' || duration === 'week';
+  return needsFullDay ? isBookingHourPast(dateKey, 0, nowMs) : isCalendarDayFullyPast(dateKey, nowMs);
+}
+
+const PAST_SLOT_ERROR = 'Cannot book time slots in the past';
+
 /**
  * Same startAt/endAt semantics as backend `buildBookingPlan` so we can detect a no-op reschedule.
  */
@@ -217,6 +241,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [payVisible, setPayVisible] = useState(false);
   const [payBookingId, setPayBookingId] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const createdBookingIdRef = useRef<string | null>(null);
   const [mySquads, setMySquads] = useState<{ id: string; name: string; emoji: string }[]>([]);
   const [selectedSquadId, setSelectedSquadId] = useState<string | null>(routeSquadId || null);
@@ -224,6 +249,11 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const buildAvailabilityPath = React.useCallback((date: string) =>
     `/bookings/availability?fieldId=${encodeURIComponent(fieldId || '')}&date=${encodeURIComponent(date)}${existingBookingId ? `&excludeBookingId=${encodeURIComponent(existingBookingId)}` : ''}`,
   [existingBookingId, fieldId]);
+
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     didPrefillRef.current = false;
@@ -331,10 +361,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         setField(data);
       }
       if (selectedDate) {
-        const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
+        const res = await apiGet<{ date: string; hours: { hour: number; available: boolean; past?: boolean }[] }>(
           buildAvailabilityPath(selectedDate)
         );
-        const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
+        const taken = res.hours.filter((h) => !h.available && h.past !== true).map((h) => h.hour);
         setBookedHours(taken);
       }
     } catch (_e) {
@@ -402,10 +432,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     }
     (async () => {
       try {
-        const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
+        const res = await apiGet<{ date: string; hours: { hour: number; available: boolean; past?: boolean }[] }>(
           buildAvailabilityPath(selectedDate)
         );
-        const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
+        const taken = res.hours.filter((h) => !h.available && h.past !== true).map((h) => h.hour);
         setBookedHours(taken);
         setConflictMsg('');
       } catch (_e) {
@@ -413,6 +443,21 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
       }
     })();
   }, [buildAvailabilityPath, route?.params?.fieldId, selectedDate]);
+
+  useEffect(() => {
+    if (selectedDate && isDateFrozenForPreset(selectedDate, preset, nowMs)) {
+      setSelectedDate('');
+    }
+    setSelectedDates((prev) => {
+      const next = prev.filter((d) => !isDateFrozenForPreset(d, preset, nowMs));
+      return next.length === prev.length ? prev : next;
+    });
+    setSelectedTimes((prev) => {
+      if (!selectedDate || prev.length === 0) return prev;
+      const anyPast = prev.some((t) => isBookingHourPast(selectedDate, parseInt(t.slice(0, 2), 10), nowMs));
+      return anyPast ? [] : prev;
+    });
+  }, [preset, selectedDate, nowMs]);
 
   const parseHour = (slot: string) => parseInt(slot.slice(0, 2), 10);
 
@@ -428,6 +473,9 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
     const startHour = parseHour(slot);
     const neededHours = getNeededHours();
     if (startHour + neededHours > 24) return;
+    if (Array.from({ length: neededHours }, (_, i) => startHour + i).some((h) => isBookingHourPast(selectedDate, h, nowMs))) {
+      return;
+    }
     const newSelection: string[] = [];
     for (let h = 0; h < neededHours; h++) {
       const s = `${String(startHour + h).padStart(2, '0')}:00 - ${String((startHour + h + 1) % 24).padStart(2, '0')}:00`;
@@ -468,6 +516,16 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         return;
       }
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const now = Date.now();
+      if (isHoursBased && selectedTimes.some((t) => isBookingHourPast(selectedDate, parseInt(t.slice(0, 2), 10), now))) {
+        throw new Error(PAST_SLOT_ERROR);
+      }
+      if (
+        (isFullDay && isDateFrozenForPreset(selectedDate, preset, now))
+        || (isMultiDay && selectedDates.some((d) => isDateFrozenForPreset(d, preset, now)))
+      ) {
+        throw new Error(PAST_SLOT_ERROR);
+      }
       let body: any = { fieldId, kind: 'HOURLY', timezone };
       if (isFullDay) {
         body = { fieldId, kind: 'FULL_DAY', dates: [selectedDate], timezone };
@@ -513,10 +571,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
         const fieldId = route?.params?.fieldId as string | undefined;
         if (fieldId && selectedDate) {
           try {
-            const res = await apiGet<{ date: string; hours: { hour: number; available: boolean }[] }>(
+            const res = await apiGet<{ date: string; hours: { hour: number; available: boolean; past?: boolean }[] }>(
               buildAvailabilityPath(selectedDate)
             );
-            const taken = res.hours.filter((h) => !h.available).map((h) => h.hour);
+            const taken = res.hours.filter((h) => !h.available && h.past !== true).map((h) => h.hour);
             setBookedHours(taken);
           } catch (_) {}
         }
@@ -540,10 +598,15 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
   const isFullDay = preset === 'day';
   const isMultiDay = preset === '2d' || preset === '3d' || preset === 'week';
   const maxDays = preset === '2d' ? 2 : preset === '3d' ? 3 : preset === 'week' ? 7 : 1;
+  const selectionHasPastSlots =
+    (isHoursBased && !!selectedDate && selectedTimes.some((t) => isBookingHourPast(selectedDate, parseInt(t.slice(0, 2), 10), nowMs)))
+    || (isFullDay && !!selectedDate && isDateFrozenForPreset(selectedDate, preset, nowMs))
+    || (isMultiDay && selectedDates.some((d) => isDateFrozenForPreset(d, preset, nowMs)));
   const showBookingSummary =
-    (isHoursBased && !!selectedDate && selectedTimes.length > 0)
+    ((isHoursBased && !!selectedDate && selectedTimes.length > 0)
     || (isFullDay && !!selectedDate)
-    || (isMultiDay && selectedDates.length > 0);
+    || (isMultiDay && selectedDates.length > 0))
+    && !selectionHasPastSlots;
 
   const rescheduleUnchanged = useMemo(() => {
     if (!isReschedule || !rescheduleBooking) return false;
@@ -833,6 +896,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
               const isSelected = isMultiDay
                 ? selectedDates.includes(date.full)
                 : selectedDate === date.full;
+              const isFrozen = isDateFrozenForPreset(date.full, preset, nowMs);
               return (
                 <TouchableOpacity
                   key={date.full}
@@ -840,8 +904,10 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
                     styles.dateCard,
                     date.isWeekend && styles.weekendDateCard,
                     isSelected && styles.selectedDateCard,
+                    isFrozen && styles.pastDateCard,
                   ]}
                   onPress={() => {
+                    if (isFrozen) return;
                     if (isMultiDay) {
                       setSelectedDates((prev) => {
                         const exists = prev.includes(date.full);
@@ -853,15 +919,20 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
                       setSelectedDate(date.full);
                     }
                   }}
+                  disabled={isFrozen}
+                  accessibilityState={{ disabled: isFrozen }}
                 >
-                  <Text style={styles.dateDay}>{date.day}</Text>
-                  <Text style={styles.dateNumber}>{date.date}</Text>
-                  <Text style={styles.dateMonth}>{date.month}</Text>
+                  <Text style={[styles.dateDay, isFrozen && styles.pastDateText]}>{date.day}</Text>
+                  <Text style={[styles.dateNumber, isFrozen && styles.pastDateText]}>{date.date}</Text>
+                  <Text style={[styles.dateMonth, isFrozen && styles.pastDateText]}>{date.month}</Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
           {!isReschedule && <Text style={styles.helpNote}>Weekends and holidays may have special pricing and availability.</Text>}
+          {(isFullDay || isMultiDay) && dates.some((d) => isDateFrozenForPreset(d.full, preset, nowMs)) ? (
+            <Text style={styles.helpNote}>Days that have already started cannot be booked as a full day.</Text>
+          ) : null}
 
           {isReschedule && isHoursBased && (
             <>
@@ -872,7 +943,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
                   <Text style={styles.noDateText}>Select a date above to see available times.</Text>
                 </View>
               ) : (
-                <TouchableOpacity style={styles.timeOpenCard} onPress={() => setShowTimeSheet(true)} activeOpacity={0.85}>
+                <TouchableOpacity style={styles.timeOpenCard} onPress={() => { setNowMs(Date.now()); setShowTimeSheet(true); }} activeOpacity={0.85}>
                   <View style={styles.timeOpenCardTextWrap}>
                     <Text style={styles.timeOpenCardTitle}>
                       {selectedTimes.length ? formatSelectedHourRange(selectedTimes) : 'Choose start time'}
@@ -905,7 +976,7 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
                 <Text style={styles.noDateText}>Please select a date first</Text>
               </View>
             ) : (
-              <TouchableOpacity style={styles.timeOpenButton} onPress={() => setShowTimeSheet(true)}>
+              <TouchableOpacity style={styles.timeOpenButton} onPress={() => { setNowMs(Date.now()); setShowTimeSheet(true); }}>
                 <Text style={styles.timeOpenText}>
                   {selectedTimes.length ? `${selectedTimes.length} slot${selectedTimes.length > 1 ? 's' : ''} selected` : 'Choose Time Slots'}
                 </Text>
@@ -963,31 +1034,40 @@ export function BookingScreen({ navigation, route }: BookingScreenProps) {
                   : `${sheetDateLabel} — choose your start time`
                 : 'Choose your start time'}
             </Text>
+            {selectedDate && isBookingHourPast(selectedDate, 0, nowMs) && !isCalendarDayFullyPast(selectedDate, nowMs) ? (
+              <Text style={styles.sheetPastHint}>Hours that have already started are frozen.</Text>
+            ) : null}
             <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetContent} showsVerticalScrollIndicator={false}>
               <View style={styles.timeSlotsContainer}>
                 {timeSlots.map((time) => {
                   const hour = parseHour(time);
                   const neededHrs = getNeededHours();
-                  const rangeConflict = Array.from({ length: neededHrs }, (_, i) => hour + i).some((h) => bookedHours.includes(h));
+                  const rangeHours = Array.from({ length: neededHrs }, (_, i) => hour + i);
+                  const rangeConflict = rangeHours.some((h) => bookedHours.includes(h));
+                  const rangePast = rangeHours.some((h) => isBookingHourPast(selectedDate, h, nowMs));
+                  const isPast = isBookingHourPast(selectedDate, hour, nowMs) || rangePast;
                   const isBooked = bookedHours.includes(hour) || rangeConflict;
                   const isSelected = selectedTimes.includes(time);
                   const canStart = hour + neededHrs <= 24;
-                  const disabled = isBooked || !canStart;
+                  const disabled = isBooked || !canStart || isPast;
                   return (
                     <TouchableOpacity
                       key={time}
                       style={[
                         styles.timeSlot,
                         (disabled || isBooked) && styles.bookedTimeSlot,
+                        isPast && styles.pastTimeSlot,
                         isSelected && styles.selectedTimeSlot,
                       ]}
                       onPress={() => !disabled && handleTimeSelect(time)}
                       disabled={disabled}
+                      accessibilityState={{ disabled }}
                     >
                       <Text
                         style={[
                           styles.timeSlotText,
                           (disabled || isBooked) && styles.bookedTimeSlotText,
+                          isPast && styles.pastTimeSlotText,
                           isSelected && styles.selectedTimeSlotText,
                         ]}
                       >
@@ -1317,6 +1397,14 @@ const styles = StyleSheet.create({
     borderColor: '#16a34a',
     backgroundColor: '#dcfce7',
   },
+  pastDateCard: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#e5e7eb',
+    opacity: 0.55,
+  },
+  pastDateText: {
+    color: '#9ca3af',
+  },
   rangeDateCard: {
     borderColor: '#bbf7d0',
     backgroundColor: '#f0fdf4',
@@ -1368,6 +1456,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#f3f4f6',
     borderColor: '#d1d5db',
   },
+  pastTimeSlot: {
+    backgroundColor: '#f3f4f6',
+    borderColor: '#e5e7eb',
+    opacity: 0.55,
+  },
   selectedTimeSlot: {
     backgroundColor: '#16a34a',
     borderColor: '#16a34a',
@@ -1378,6 +1471,9 @@ const styles = StyleSheet.create({
     color: '#111827',
   },
   bookedTimeSlotText: {
+    color: '#9ca3af',
+  },
+  pastTimeSlotText: {
     color: '#9ca3af',
   },
   selectedTimeSlotText: {
@@ -1482,6 +1578,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 12,
     lineHeight: 18,
+  },
+  sheetPastHint: {
+    fontSize: 12,
+    color: '#b45309',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+    marginTop: -4,
+    marginBottom: 12,
   },
   sheetScroll: {
     paddingHorizontal: 16,

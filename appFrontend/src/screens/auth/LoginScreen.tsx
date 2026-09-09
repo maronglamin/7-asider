@@ -14,7 +14,7 @@ import { StatusBar } from 'expo-status-bar';
 import { ArrowLeft, ArrowRight, CheckCircle2, Mail, Shield, Sparkles, Trophy } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { apiPost } from '../../api/client';
+import { apiPostWithDevice } from '../../api/client';
 import { OtpInput, type OtpInputRef } from '../../components/OtpInput';
 import { useAuth, type AuthUser } from '../../context/AuthContext';
 
@@ -35,6 +35,7 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
   const [loading, setLoading] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [deviceLockNotice, setDeviceLockNotice] = useState(false);
 
   const trimmedEmail = email.trim().toLowerCase();
   const emailValid = EMAIL_RE.test(trimmedEmail);
@@ -53,7 +54,10 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
     setError('');
     setLoading(true);
     try {
-      await apiPost('/auth/send-otp', { email: trimmedEmail });
+      const sent = await apiPostWithDevice<{ accountDeviceLocked?: boolean }>('/auth/send-otp', {
+        email: trimmedEmail,
+      });
+      setDeviceLockNotice(Boolean(sent.accountDeviceLocked));
       setEmail(trimmedEmail);
       setStep('otp');
       setOtp('');
@@ -77,11 +81,12 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
       setError('');
       setLoading(true);
       try {
-        const res = await apiPost<{ token: string; user: NonNullable<AuthUser> }>(
-          '/auth/verify-otp',
-          { email: trimmedEmail || email, code: value },
-        );
-        setAuth(res.user, res.token, { fromSignIn: true });
+        const res = await apiPostWithDevice<{
+          token: string;
+          user: NonNullable<AuthUser>;
+          device?: { id: string } | null;
+        }>('/auth/verify-otp', { email: trimmedEmail || email, code: value });
+        setAuth(res.user, res.token, { fromSignIn: true, deviceId: res.device?.id });
         navigation?.reset({ index: 0, routes: [{ name: 'Main' }] });
       } catch (err: any) {
         setError(err.message || 'Verification failed');
@@ -100,7 +105,10 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
     setError('');
     setLoading(true);
     try {
-      await apiPost('/auth/send-otp', { email: trimmedEmail || email });
+      const sent = await apiPostWithDevice<{ accountDeviceLocked?: boolean }>('/auth/send-otp', {
+        email: trimmedEmail || email,
+      });
+      setDeviceLockNotice(Boolean(sent.accountDeviceLocked));
       setResendCooldown(60);
       setOtp('');
       otpRef.current?.focus();
@@ -115,6 +123,7 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
     setStep('email');
     setOtp('');
     setError('');
+    setDeviceLockNotice(false);
     setTimeout(() => emailRef.current?.focus(), 250);
   };
 
@@ -213,6 +222,15 @@ export function LoginScreen({ navigation }: { navigation?: any }) {
                     <Text style={styles.emailHighlight}>{trimmedEmail || email}</Text>
                   </Text>
                 </View>
+                {deviceLockNotice ? (
+                  <View style={styles.deviceLockNotice}>
+                    <Shield size={16} color="#166534" />
+                    <Text style={styles.deviceLockNoticeText}>
+                      This account is locked to one device. Use the same phone, tablet, or browser you
+                      chose in Profile.
+                    </Text>
+                  </View>
+                ) : null}
                 <View style={styles.form}>
                   <OtpInput
                     ref={otpRef}
@@ -554,6 +572,23 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: '#fecaca',
+  },
+  deviceLockNotice: {
+    marginTop: 4,
+    flexDirection: 'row',
+    gap: 8,
+    backgroundColor: '#f0fdf4',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#bbf7d0',
+  },
+  deviceLockNoticeText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#166534',
+    fontWeight: '500',
   },
   errorText: {
     fontSize: 14,

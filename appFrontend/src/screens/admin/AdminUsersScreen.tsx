@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, TextInput, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, FlatList, TextInput, RefreshControl, Alert, Platform } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
-import { ArrowLeft, ShieldCheck, Plus, Mail, UserMinus, MoreVertical } from 'lucide-react-native';
+import { ArrowLeft, ShieldCheck, Plus, Mail, UserMinus, MoreVertical, Smartphone } from 'lucide-react-native';
 import { useAuth } from '../../context/AuthContext';
 import { apiGetAuth, apiPatchAuth } from '../../api/client';
 
@@ -11,7 +11,22 @@ type User = {
   email: string;
   name?: string;
   supadmin?: boolean;
+  deviceLockEnabled?: boolean;
 };
+
+async function confirmUnlock(email: string): Promise<boolean> {
+  const title = 'Unlock device';
+  const message = `Turn off device lock for ${email}? They will be able to sign in from another phone, tablet, or browser.`;
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.confirm(`${title}\n\n${message}`);
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+      { text: 'Unlock', style: 'destructive', onPress: () => resolve(true) },
+    ]);
+  });
+}
 
 export default function AdminUsersScreen({ navigation }: { navigation?: any }) {
   const insets = useSafeAreaInsets();
@@ -23,6 +38,7 @@ export default function AdminUsersScreen({ navigation }: { navigation?: any }) {
   const [emailInput, setEmailInput] = useState('');
   const [adding, setAdding] = useState(false);
   const [revokingEmail, setRevokingEmail] = useState<string | null>(null);
+  const [unlockingId, setUnlockingId] = useState<string | null>(null);
   const [openMenuEmail, setOpenMenuEmail] = useState<string | null>(null);
 
   const canAdd = useMemo(() => {
@@ -71,6 +87,29 @@ export default function AdminUsersScreen({ navigation }: { navigation?: any }) {
       setError(e?.message || 'Failed to grant super admin');
     } finally {
       setAdding(false);
+    }
+  };
+
+  const unlockDevice = async (item: User) => {
+    if (!token || unlockingId) return;
+    const ok = await confirmUnlock(item.email);
+    if (!ok) return;
+    setUnlockingId(item.id);
+    try {
+      await apiPatchAuth(`/admin/users/${item.id}/device-lock`, { enabled: false }, token as string);
+      setItems((prev) =>
+        prev.map((admin) => (admin.id === item.id ? { ...admin, deviceLockEnabled: false } : admin)),
+      );
+    } catch (e: any) {
+      const message = e?.message || 'Failed to unlock device';
+      setError(message);
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.alert(message);
+      } else {
+        Alert.alert('Could not unlock', message);
+      }
+    } finally {
+      setUnlockingId(null);
     }
   };
 
@@ -151,6 +190,27 @@ export default function AdminUsersScreen({ navigation }: { navigation?: any }) {
             </View>
           )}
         </View>
+        <View style={styles.lockRow}>
+          <View style={[styles.lockBadge, item.deviceLockEnabled ? styles.lockBadgeOn : styles.lockBadgeOff]}>
+            <Smartphone size={14} color={item.deviceLockEnabled ? '#c2410c' : '#6b7280'} />
+            <Text style={[styles.lockBadgeText, item.deviceLockEnabled ? styles.lockBadgeTextOn : null]}>
+              {item.deviceLockEnabled ? 'Locked to one device' : 'Device lock off'}
+            </Text>
+          </View>
+          {item.deviceLockEnabled ? (
+            <TouchableOpacity
+              style={styles.unlockBtn}
+              onPress={() => void unlockDevice(item)}
+              disabled={unlockingId === item.id}
+            >
+              {unlockingId === item.id ? (
+                <ActivityIndicator size="small" color="#c2410c" />
+              ) : (
+                <Text style={styles.unlockText}>Unlock</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     );
   };
@@ -167,7 +227,7 @@ export default function AdminUsersScreen({ navigation }: { navigation?: any }) {
           <ShieldCheck size={22} color="#ffffff" />
           <Text style={styles.title}>Admin Users</Text>
         </View>
-        <Text style={styles.subtitle}>Manage super admin accounts</Text>
+        <Text style={styles.subtitle}>Manage super admin accounts and unlock a locked device</Text>
       </View>
       <View style={styles.content}>
         <View style={styles.contentInner}>
@@ -257,7 +317,15 @@ const styles = StyleSheet.create({
   contentInner: { width: '100%', maxWidth: 640, alignSelf: 'center' },
   sectionLabel: { fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', marginBottom: 10 },
 
-  userCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 12, marginBottom: 8, overflow: 'visible', position: 'relative' },
+  userCard: { backgroundColor: '#ffffff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 12, marginBottom: 8, overflow: 'visible', position: 'relative', gap: 10 },
+  lockRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  lockBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1 },
+  lockBadgeOn: { backgroundColor: '#fff7ed', borderColor: '#fdba74' },
+  lockBadgeOff: { backgroundColor: '#f9fafb', borderColor: '#e5e7eb' },
+  lockBadgeText: { fontSize: 12, fontWeight: '700', color: '#6b7280' },
+  lockBadgeTextOn: { color: '#c2410c' },
+  unlockBtn: { backgroundColor: '#fff7ed', borderWidth: 1, borderColor: '#fdba74', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, minWidth: 84, alignItems: 'center' },
+  unlockText: { color: '#c2410c', fontSize: 12, fontWeight: '800' },
   userCardActive: { zIndex: 4000, elevation: 24 },
   userRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#ecfdf5', alignItems: 'center', justifyContent: 'center' },

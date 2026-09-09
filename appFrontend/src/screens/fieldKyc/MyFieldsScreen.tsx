@@ -22,6 +22,7 @@ type KycRecord = {
   images: KycImage[];
   createdAt?: string;
   updatedAt?: string;
+  role?: 'OWNER' | 'MANAGER';
 };
 
 export default function MyFieldsScreen({ navigation }: any) {
@@ -129,9 +130,15 @@ export default function MyFieldsScreen({ navigation }: any) {
             );
           })()}
           <View style={styles.badgeRow}>
-            <View style={[styles.badge, { backgroundColor: sStyle.backgroundColor, borderColor: sStyle.color }]}>
-              <Text style={[styles.badgeText, { color: sStyle.color }]} numberOfLines={1} ellipsizeMode="tail">{statusLabel}</Text>
-            </View>
+            {item.role === 'MANAGER' ? (
+              <View style={[styles.badge, { backgroundColor: '#eff6ff', borderColor: '#1d4ed8' }]}>
+                <Text style={[styles.badgeText, { color: '#1d4ed8' }]}>MANAGER</Text>
+              </View>
+            ) : (
+              <View style={[styles.badge, { backgroundColor: sStyle.backgroundColor, borderColor: sStyle.color }]}>
+                <Text style={[styles.badgeText, { color: sStyle.color }]} numberOfLines={1} ellipsizeMode="tail">{statusLabel}</Text>
+              </View>
+            )}
           </View>
           {formatPrice(item.pricePerHour) ? (
             <View style={styles.priceBadge}>
@@ -188,7 +195,7 @@ export default function MyFieldsScreen({ navigation }: any) {
               <Plus size={20} color="#ffffff" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.subtitle}>Your submitted fields and status</Text>
+          <Text style={styles.subtitle}>Fields you own or manage</Text>
         </View>
       </SafeAreaView>
 

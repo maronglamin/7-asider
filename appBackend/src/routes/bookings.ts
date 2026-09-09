@@ -15,6 +15,8 @@ import {
   easypayGatewayCodeNeedsPayerPhone,
   startEasypayWalletCheckout,
 } from '../services/easypayPartner';
+import { stampOwnerPendingRefundMetadata } from '../services/adminRefundReview';
+import { formatBookingSlotsLabel } from '../services/ownerBookingStatement';
 import { syncBookingPaymentFromEasypay, isEasypayPartnerAlreadyPaidMessage, markBookingPaidFromEasypay } from '../services/easypayBookingPayment';
 import {
   buildCheckInPayload,
@@ -26,7 +28,15 @@ import {
   withCheckInToken,
 } from '../utils/bookingCheckIn';
 import { bookingSquadInclude, findMembership, serializeBookingSquads, userCanViewBooking } from '../utils/squads';
+import { bookingManageWhere, canManageField } from '../field/access';
 import { notifySquadFixture } from '../services/squadNotifications';
+import {
+  buildOwnerStatementPdf,
+  loadOwnerStatement,
+  parseStatementDateKey,
+  statementPdfFilename,
+  STATEMENT_INCLUSIVE_DAYS,
+} from '../services/ownerBookingStatement';
 
 const router = Router();
 
@@ -50,6 +60,18 @@ function clampHour(n: any): number {
   if (!isFinite(x)) return 0;
   return Math.min(23, Math.max(0, Math.floor(x)));
 }
+
+function bookingUnitStartAt(unit: { date: Date; hourStart: number }): Date {
+  const start = new Date(unit.date);
+  start.setUTCHours(unit.hourStart, 0, 0, 0);
+  return start;
+}
+
+function isBookingUnitInThePast(unit: { date: Date; hourStart: number }, nowMs = Date.now()): boolean {
+  return bookingUnitStartAt(unit).getTime() <= nowMs;
+}
+
+const PAST_SLOT_ERROR = 'Cannot book time slots in the past';
 
 function mergeBookingEasypayMetadata(existing: unknown, patch: Record<string, unknown>): Record<string, unknown> {
   const meta =
@@ -157,6 +179,9 @@ function buildBookingPlan(input: any, field: any, opts?: { allowNonApprovedField
   }
 
   if (units.length === 0) throw new Error('No booking units computed');
+  if (units.some((u) => isBookingUnitInThePast(u))) {
+    throw new Error(PAST_SLOT_ERROR);
+  }
 
   const sorted = [...units].sort((a, b) => a.date.getTime() - b.date.getTime() || a.hourStart - b.hourStart);
   const first = sorted[0];
@@ -308,6 +333,7 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
     const { notifyNewBookingPushes } = await import('../services/pushNotifications');
     void notifyNewBookingPushes({
       fieldOwnerUserId: field.userId,
+      fieldId: field.id,
       bookerUserId: userId,
       fieldName: field.name || 'Your field',
       bookingId: result.id,
@@ -340,6 +366,7 @@ router.post('/', requireAuth, async (req: AuthedRequest, res: Response) => {
       'date is required',
       'Selected range exceeds day boundary',
       'No booking units computed',
+      PAST_SLOT_ERROR,
     ]);
     if (badRequestMessages.has(message)) {
       return res.status(400).json({ error: message });
@@ -475,7 +502,13 @@ router.get('/availability', async (req: Request, res: Response) => {
       select: { hourStart: true },
     });
     const booked = new Set(units.map((u: any) => u.hourStart));
-    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, available: !booked.has(h) }));
+    const nowMs = Date.now();
+    const hours = Array.from({ length: 24 }, (_, h) => {
+      const start = new Date(day);
+      start.setUTCHours(h, 0, 0, 0);
+      const past = start.getTime() <= nowMs;
+      return { hour: h, available: !booked.has(h) && !past, past };
+    });
     console.log('[GET /bookings/availability]', { fieldId, date, bookedCount: booked.size });
     res.json({ date, hours });
   } catch (e: any) {
@@ -569,6 +602,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
     const { notifyReschedulePushes } = await import('../services/pushNotifications');
     void notifyReschedulePushes({
       fieldOwnerUserId: fieldOwnerId,
+      fieldId: booking.fieldId || booking.field?.id,
       bookerUserId: userId,
       fieldName: booking.field?.name || 'Your field',
       bookingId: booking.id,
@@ -597,6 +631,7 @@ router.patch('/:id/reschedule', requireAuth, async (req: AuthedRequest, res: Res
       'date is required',
       'Selected range exceeds day boundary',
       'No booking units computed',
+      PAST_SLOT_ERROR,
     ]);
     if (badRequestMessages.has(message)) {
       return res.status(400).json({ error: message });
@@ -615,13 +650,16 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
       where: { id },
       include: {
         field: { select: { userId: true, name: true } },
+        units: { select: { date: true, hourStart: true } },
       },
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
 
     const isBooker = existing.userId === userId;
-    const isOwner = existing.field?.userId === userId;
-    if (!isBooker && !isOwner) return res.status(404).json({ error: 'Booking not found' });
+    const fieldId = existing.fieldId as string;
+    const access = fieldId ? await canManageField(userId, fieldId) : { allowed: false, isOwner: false };
+    const canManage = access.allowed;
+    if (!isBooker && !canManage) return res.status(404).json({ error: 'Booking not found' });
 
     const statusUpper = bookingStatusUpper(existing.status);
     if (statusUpper === 'COMPLETED') {
@@ -633,7 +671,7 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
     }
 
     const paid = isPaidBooking(existing.paymentStatus);
-    const nextStatus = isOwner && paid ? 'PENDING_REFUND' : 'CANCELLED';
+    const nextStatus = canManage && paid ? 'PENDING_REFUND' : 'CANCELLED';
 
     const meta = existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {};
     const ep = (meta as any).easypay;
@@ -647,9 +685,23 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
       }
     }
 
+    const nextMetadata =
+      nextStatus === 'PENDING_REFUND'
+        ? stampOwnerPendingRefundMetadata(existing.metadata, {
+            slotsLabel: formatBookingSlotsLabel(existing.units, existing.type),
+            pendingRefundBy: access.isOwner ? 'owner' : 'manager',
+          })
+        : existing.metadata;
+
     await (prisma as any).$transaction(async (tx: any) => {
       await tx.bookingUnit.deleteMany({ where: { bookingId: id } });
-      await tx.booking.update({ where: { id }, data: { status: nextStatus } });
+      await tx.booking.update({
+        where: { id },
+        data: {
+          status: nextStatus,
+          ...(nextStatus === 'PENDING_REFUND' ? { metadata: nextMetadata as any } : {}),
+        },
+      });
     });
 
     const ownerId = existing.field?.userId as string | undefined;
@@ -657,7 +709,7 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
     const bookerUserId = existing.userId as string;
     const { notifyBookingCancelledPushes, notifyOwnerCancelledBookingPushes } = await import('../services/pushNotifications');
 
-    if (isOwner) {
+    if (canManage) {
       void notifyOwnerCancelledBookingPushes({
         bookerUserId,
         fieldName,
@@ -672,6 +724,7 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
       const bookerLabel = (booker?.name && String(booker.name).trim()) || booker?.email || 'A customer';
       void notifyBookingCancelledPushes({
         fieldOwnerUserId: ownerId,
+        fieldId,
         bookerUserId: userId,
         fieldName,
         bookingId: id,
@@ -682,6 +735,37 @@ router.post('/:id/cancel', requireAuth, async (req: AuthedRequest, res: Response
     res.json({ ok: true, status: nextStatus });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to cancel booking' });
+  }
+});
+
+// GET /bookings/owner/statement?start=YYYY-MM-DD&end=YYYY-MM-DD[&format=pdf]
+// Inclusive 30-day booking statement for the field owner. Includes every booking status.
+router.get('/owner/statement', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const ownerId = req.auth!.userId;
+    const startKey = parseStatementDateKey(req.query.start);
+    const endKey = parseStatementDateKey(req.query.end);
+    if (!startKey || !endKey) {
+      return res.status(400).json({ error: 'start and end are required as YYYY-MM-DD' });
+    }
+    const statement = await loadOwnerStatement(ownerId, startKey, endKey);
+    const format = String(req.query.format || '').toLowerCase();
+    if (format === 'pdf') {
+      const pdf = buildOwnerStatementPdf(statement);
+      const filename = statementPdfFilename(statement);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', String(pdf.length));
+      return res.send(pdf);
+    }
+    res.json({ statement });
+  } catch (e: any) {
+    const message = e?.message || 'Failed to build statement';
+    if (String(message).includes(`${STATEMENT_INCLUSIVE_DAYS} days`) || message === 'Owner not found') {
+      return res.status(400).json({ error: message });
+    }
+    console.error('[GET /bookings/owner/statement] error:', e);
+    res.status(500).json({ error: message });
   }
 });
 
@@ -711,7 +795,7 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
           : {};
 
     const listWhere: any = {
-      field: { userId: ownerId },
+      ...bookingManageWhere(ownerId),
       ...timeWhere,
       ...paymentWhere,
     };
@@ -721,7 +805,7 @@ router.get('/owner', requireAuth, async (req: AuthedRequest, res: Response) => {
     let summary: any = undefined;
     if (hasRange) {
       const baseSummaryWhere: any = {
-        field: { userId: ownerId },
+        ...bookingManageWhere(ownerId),
         ...timeWhere,
         status: { notIn: ['CANCELLED', 'PENDING_REFUND'] },
       };
@@ -818,7 +902,7 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const id = req.params.id;
-    if (['mine', 'owner', 'availability'].includes(id)) {
+    if (['mine', 'owner', 'availability', 'statement'].includes(id)) {
       return res.status(404).json({ error: 'Not found' });
     }
     const booking = await (prisma as any).booking.findUnique({
@@ -955,7 +1039,8 @@ router.patch('/:id/status', requireAuth, async (req: AuthedRequest, res: Respons
       include: { field: { select: { userId: true } } },
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
-    if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    const access = await canManageField(ownerId, existing.fieldId);
+    if (!access.allowed) return res.status(403).json({ error: 'Not allowed' });
     if (isNonManageableBookingStatus(existing.status)) {
       return res.status(409).json({ error: 'This booking can no longer be completed.' });
     }
@@ -1034,7 +1119,8 @@ router.post('/:id/check-in', requireAuth, async (req: AuthedRequest, res: Respon
       include: { field: { select: { userId: true, name: true } } },
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
-    if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    const checkInAccess = await canManageField(ownerId, existing.fieldId);
+    if (!checkInAccess.allowed) return res.status(403).json({ error: 'Not allowed' });
 
     const status = bookingStatusUpper(existing.status);
     if (status === 'CANCELLED' || status === 'PENDING_REFUND') {
@@ -1073,7 +1159,8 @@ router.patch('/:id/payment', requireAuth, async (req: AuthedRequest, res: Respon
       include: { field: { select: { userId: true } } },
     });
     if (!existing) return res.status(404).json({ error: 'Booking not found' });
-    if (existing.field.userId !== ownerId) return res.status(403).json({ error: 'Not allowed' });
+    const payAccess = await canManageField(ownerId, existing.fieldId);
+    if (!payAccess.allowed) return res.status(403).json({ error: 'Not allowed' });
     const existingStatus = bookingStatusUpper(existing.status);
     if (existingStatus === 'CANCELLED' || existingStatus === 'PENDING_REFUND') {
       return res.status(409).json({ error: 'This booking can no longer be marked as paid.' });
@@ -1479,7 +1566,8 @@ router.get('/:id/receipts', requireAuth, async (req: AuthedRequest, res: Respons
       include: { field: { select: { userId: true } } },
     });
     if (!booking) return res.status(404).json({ error: 'Booking not found' });
-    const isOwner = booking.field.userId === userId;
+    const receiptAccess = await canManageField(userId, booking.fieldId);
+    const isOwner = receiptAccess.allowed;
     const isBooker = booking.userId === userId;
     if (!isOwner && !isBooker) return res.status(403).json({ error: 'Not allowed' });
     const receipts = await (prisma as any).paymentReceipt.findMany({

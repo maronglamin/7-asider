@@ -5,9 +5,49 @@ import { verifyAppleIdentityToken } from '../auth/apple';
 import { signJwt } from '../utils/jwt';
 import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
-import { toAuthUser } from '../utils/authUser';
+import { AUTH_SESSION_SELECT, resolveRequestDeviceId, toAuthUserSession } from '../utils/authUser';
+import { completeDeviceLogin, sendDeviceLoginError } from '../device/login';
+import {
+  getClientIp,
+  getRequestDeviceId,
+  parseDeviceInfo,
+  registerOrUpdateUserDevice,
+  resolveUserDeviceId,
+} from '../device/service';
 
 const router = Router();
+
+async function issueTokenWithDevice(
+  req: Request,
+  res: Response,
+  user: { id: string; email: string; name: string | null },
+  provider: 'google' | 'apple' | 'facebook' | 'email',
+  extra: Record<string, unknown> = {},
+) {
+  const full = await prisma.user.findUnique({ where: { id: user.id } });
+  if (!full) {
+    res.status(500).json({ error: 'Failed to create session' });
+    return;
+  }
+  const device = await completeDeviceLogin(req, full);
+  const jwt = signJwt({
+    userId: user.id,
+    email: user.email,
+    name: user.name ?? undefined,
+    provider,
+  });
+  await prisma.session.create({ data: { userId: user.id, token: jwt } });
+  const sessionUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: AUTH_SESSION_SELECT,
+  });
+  res.json({
+    token: jwt,
+    user: sessionUser ? await toAuthUserSession(sessionUser, device.id) : undefined,
+    device,
+    ...extra,
+  });
+}
 
 router.post('/google', async (req: Request, res: Response) => {
   try {
@@ -15,10 +55,8 @@ router.post('/google', async (req: Request, res: Response) => {
     if (!idToken) return res.status(400).json({ error: 'idToken required' });
     const profile = await verifyGoogleIdToken(idToken);
     const email = profile.email || `${profile.sub}@google.local`;
-    // find non-terminated user with same email
     let user = await prisma.user.findFirst({ where: { email, NOT: { status: 'TERMINATED' as any } } as any });
     if (user) {
-      // If blocked or terminated, stop; if active, update name/providerId
       const uStatus = (user as any).status;
       if (uStatus === 'TERMINATED' || uStatus === 'BLOCKED') {
         return res.status(403).json({ error: 'Account is disabled' });
@@ -30,10 +68,9 @@ router.post('/google', async (req: Request, res: Response) => {
     if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
       return res.status(403).json({ error: 'Account is disabled' });
     }
-    const jwt = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'google' });
-    await prisma.session.create({ data: { userId: user.id, token: jwt } });
-    res.json({ token: jwt, profile });
+    await issueTokenWithDevice(req, res, user, 'google', { profile });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     res.status(401).json({ error: e.message || 'Google verification failed' });
   }
 });
@@ -56,10 +93,9 @@ router.post('/facebook', async (req: Request, res: Response) => {
     if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
       return res.status(403).json({ error: 'Account is disabled' });
     }
-    const jwt = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'facebook' });
-    await prisma.session.create({ data: { userId: user.id, token: jwt } });
-    res.json({ token: jwt, profile });
+    await issueTokenWithDevice(req, res, user, 'facebook', { profile });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     res.status(401).json({ error: e.message || 'Facebook verification failed' });
   }
 });
@@ -82,37 +118,29 @@ router.post('/apple', async (req: Request, res: Response) => {
     if ((user as any).status === 'TERMINATED' || (user as any).status === 'BLOCKED') {
       return res.status(403).json({ error: 'Account is disabled' });
     }
-    const jwt = signJwt({ userId: user.id, email: user.email, provider: 'apple' });
-    await prisma.session.create({ data: { userId: user.id, token: jwt } });
-    res.json({ token: jwt, profile });
+    await issueTokenWithDevice(req, res, user, 'apple', { profile });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     res.status(401).json({ error: e.message || 'Apple verification failed' });
   }
 });
 
-// Return current authenticated user details
 router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
-        id: true,
-        email: true,
-        username: true,
-        name: true,
-        supadmin: true,
-        provider: true,
+        ...AUTH_SESSION_SELECT,
         providerId: true,
-        passwordHash: true,
-        appLockType: true,
         createdAt: true,
         updatedAt: true,
       },
     });
     if (!user) return res.status(404).json({ error: 'User not found' });
+    const deviceId = await resolveRequestDeviceId(userId, req);
     res.json({
-      ...toAuthUser(user),
+      ...(await toAuthUserSession(user, deviceId)),
       providerId: user.providerId,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -122,7 +150,6 @@ router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   }
 });
 
-// Update current authenticated user's profile (currently supports username and name)
 router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
@@ -154,21 +181,15 @@ router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
         where: { id: userId },
         data,
         select: {
-          id: true,
-          email: true,
-          username: true,
-          name: true,
-          supadmin: true,
-          provider: true,
+          ...AUTH_SESSION_SELECT,
           providerId: true,
-          passwordHash: true,
-          appLockType: true,
           createdAt: true,
           updatedAt: true,
         },
       });
+      const deviceId = await resolveRequestDeviceId(userId, req);
       return res.json({
-        ...toAuthUser(updated),
+        ...(await toAuthUserSession(updated, deviceId)),
         providerId: updated.providerId,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt,
@@ -184,7 +205,6 @@ router.patch('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   }
 });
 
-// Update current user's account status (self-terminate)
 router.patch('/me/status', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
@@ -194,7 +214,11 @@ router.patch('/me/status', requireAuth, async (req: AuthedRequest, res: Response
     }
     await prisma.user.update({
       where: { id: userId },
-      data: { status: 'TERMINATED' as any },
+      data: {
+        status: 'TERMINATED' as any,
+        deviceLockEnabled: false,
+        lockedDeviceId: null,
+      },
     });
     await prisma.session.updateMany({
       where: { userId, revokedAt: null },
@@ -206,6 +230,88 @@ router.patch('/me/status', requireAuth, async (req: AuthedRequest, res: Response
   }
 });
 
+router.post('/register-device', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const input = parseDeviceInfo(req.body);
+    if (!input) {
+      return res.status(400).json({ error: 'Device information is required', code: 'DEVICE_REQUIRED' });
+    }
+    const device = await registerOrUpdateUserDevice(req.auth!.userId, input, getClientIp(req));
+    return res.json({ device });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || 'Failed to register device' });
+  }
+});
+
+router.patch('/device-lock', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.auth!.userId;
+    const enabled = (req.body as { enabled?: unknown })?.enabled;
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled (boolean) is required' });
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (enabled) {
+      const input = parseDeviceInfo((req.body as { device?: unknown }).device);
+      if (!input) {
+        return res.status(400).json({
+          error: 'Device information is required to enable device lock.',
+          code: 'DEVICE_REQUIRED',
+        });
+      }
+
+      const device = await registerOrUpdateUserDevice(userId, input, getClientIp(req));
+      const updated = await prisma.user.update({
+        where: { id: userId },
+        data: {
+          deviceLockEnabled: true,
+          lockedDeviceId: device.id,
+        },
+        select: AUTH_SESSION_SELECT,
+      });
+
+      await prisma.session.updateMany({
+        where: { userId, revokedAt: null, token: { not: req.auth!.token } },
+        data: { revokedAt: new Date() },
+      });
+
+      return res.json({
+        user: await toAuthUserSession(updated, device.id),
+        device,
+      });
+    }
+
+    const requestDeviceId = getRequestDeviceId(req);
+    const resolvedDeviceId = await resolveUserDeviceId(userId, requestDeviceId);
+
+    if (user.deviceLockEnabled && user.lockedDeviceId) {
+      if (!resolvedDeviceId || resolvedDeviceId !== user.lockedDeviceId) {
+        return res.status(403).json({
+          error:
+            'Device lock can only be turned off from your registered device. Open 7-aside on that phone, tablet, or browser to disable this setting.',
+          code: 'DEVICE_LOCK_VIOLATION',
+        });
+      }
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: userId },
+      data: {
+        deviceLockEnabled: false,
+        lockedDeviceId: null,
+      },
+      select: AUTH_SESSION_SELECT,
+    });
+
+    return res.json({
+      user: await toAuthUserSession(updated, resolvedDeviceId),
+    });
+  } catch (e: any) {
+    return res.status(500).json({ error: e.message || 'Failed to update device lock' });
+  }
+});
+
 export default router;
-
-

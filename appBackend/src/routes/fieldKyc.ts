@@ -4,6 +4,13 @@ import { prisma } from '../db/prisma';
 import { requireAuth, AuthedRequest } from '../middleware/auth';
 import { ensureUploadDirectory, uploadPath } from '../utils/uploads';
 import { createImageUpload } from '../utils/multerUpload';
+import { canManageField, managedFieldWhere, userFieldAccessFlags } from '../field/access';
+import {
+  inviteFieldManager,
+  listFieldManagers,
+  revokeFieldManager,
+  revokeFieldManagerInvite,
+} from '../field/invites';
 
 const router = Router();
 
@@ -19,13 +26,16 @@ function imageBaseUrl(): string {
 router.get('/me', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
-    const kyc = await (prisma as any).fieldKyc.findFirst({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: { images: { orderBy: { order: 'asc' } } },
-    });
-    if (!kyc) return res.json({ exists: false });
-    res.json({ exists: true, kyc });
+    const [kyc, access] = await Promise.all([
+      (prisma as any).fieldKyc.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        include: { images: { orderBy: { order: 'asc' } } },
+      }),
+      userFieldAccessFlags(userId),
+    ]);
+    if (!kyc) return res.json({ exists: false, ...access });
+    res.json({ exists: true, kyc, ...access });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch KYC' });
   }
@@ -40,12 +50,13 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
     const cursor = (req.query.cursor as string | undefined) || undefined;
 
     const results = await (prisma as any).fieldKyc.findMany({
-      where: { userId },
+      where: managedFieldWhere(userId),
       orderBy: { updatedAt: 'desc' },
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       select: {
         id: true,
+        userId: true,
         name: true,
         city: true,
         address: true,
@@ -69,7 +80,13 @@ router.get('/mine', requireAuth, async (req: AuthedRequest, res: Response) => {
       items = results.slice(0, limit);
     }
 
-    res.json({ items, nextCursor });
+    res.json({
+      items: items.map((row: any) => ({
+        ...row,
+        role: row.userId === userId ? 'OWNER' : 'MANAGER',
+      })),
+      nextCursor,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch fields' });
   }
@@ -164,7 +181,64 @@ router.get('/public/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /fields/kyc/:id - fetch a specific field (owner only)
+function sendManagerError(res: Response, e: any, fallback: string) {
+  const status = Number(e?.status) || 500;
+  if (status < 500) return res.status(status).json({ error: e.message });
+  console.error('[field managers]', e?.message || e);
+  return res.status(500).json({ error: fallback });
+}
+
+router.get('/:id/managers', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const access = await canManageField(req.auth!.userId, String(req.params.id));
+    if (!access.isOwner) return res.status(404).json({ error: 'Not found' });
+    const data = await listFieldManagers(access.fieldId);
+    res.json(data);
+  } catch (e: any) {
+    sendManagerError(res, e, 'Failed to load managers');
+  }
+});
+
+router.post('/:id/managers/invite', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const result = await inviteFieldManager({
+      fieldId: String(req.params.id),
+      ownerUserId: req.auth!.userId,
+      email: (req.body as { email?: unknown })?.email,
+    });
+    res.json(result);
+  } catch (e: any) {
+    sendManagerError(res, e, 'Failed to send invite');
+  }
+});
+
+router.delete('/:id/managers/:userId', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const result = await revokeFieldManager({
+      fieldId: String(req.params.id),
+      ownerUserId: req.auth!.userId,
+      managerUserId: String(req.params.userId),
+    });
+    res.json(result);
+  } catch (e: any) {
+    sendManagerError(res, e, 'Failed to remove manager');
+  }
+});
+
+router.post('/:id/managers/invites/:inviteId/revoke', requireAuth, async (req: AuthedRequest, res: Response) => {
+  try {
+    const result = await revokeFieldManagerInvite({
+      fieldId: String(req.params.id),
+      ownerUserId: req.auth!.userId,
+      inviteId: String(req.params.inviteId),
+    });
+    res.json(result);
+  } catch (e: any) {
+    sendManagerError(res, e, 'Failed to cancel invite');
+  }
+});
+
+// GET /fields/kyc/:id - fetch a specific field (owner or manager)
 router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.auth!.userId;
@@ -173,8 +247,14 @@ router.get('/:id', requireAuth, async (req: AuthedRequest, res: Response) => {
       where: { id },
       include: { images: { orderBy: { order: 'asc' } } },
     });
-    if (!item || item.userId !== userId) return res.status(404).json({ error: 'Not found' });
-    res.json(item);
+    if (!item) return res.status(404).json({ error: 'Not found' });
+    const access = await canManageField(userId, id);
+    if (!access.allowed) return res.status(404).json({ error: 'Not found' });
+    res.json({
+      ...item,
+      role: access.isOwner ? 'OWNER' : 'MANAGER',
+      isOwner: access.isOwner,
+    });
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'Failed to fetch field' });
   }
@@ -195,7 +275,9 @@ router.patch('/:id/price', requireAuth, async (req: AuthedRequest, res: Response
     }
 
     const existing = await (prisma as any).fieldKyc.findUnique({ where: { id } });
-    if (!existing || existing.userId !== userId) return res.status(404).json({ error: 'Not found' });
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    const access = await canManageField(userId, id);
+    if (!access.allowed) return res.status(404).json({ error: 'Not found' });
 
     const updated = await (prisma as any).fieldKyc.update({
       where: { id },

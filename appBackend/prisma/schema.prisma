@@ -25,6 +25,8 @@ model User {
   appLockSecretHash     String?
   appLockFailedAttempts Int          @default(0)
   appLockLockedUntil    DateTime?
+  deviceLockEnabled     Boolean       @default(false)
+  lockedDeviceId        String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   sessions       Session[]
@@ -37,8 +39,74 @@ model User {
   sentContractInvitations ContractInvitation[] @relation("ContractInvitationSender")
   pushDevices      PushDevice[]
   squadMemberships SquadMember[]
+  devices          UserDevice[]
+  lockedDevice     UserDevice?    @relation("LockedDevice", fields: [lockedDeviceId], references: [id], onDelete: SetNull)
+  monthlyDevices   UserMonthlyDevice[]
+  monthlyDeviceUsers DeviceMonthlyUser[]
+  fieldManagerRoles FieldManager[] @relation("FieldManagerUser")
+  invitedFieldManagers FieldManager[] @relation("FieldManagerInviter")
+  sentFieldManagerInvites FieldManagerInvite[] @relation("FieldManagerInviteSender")
+  supportTickets SupportTicket[]
 
   @@index([email])
+}
+
+/// Devices used to sign in. Fingerprint is per app install (native) or browser profile (web/PWA).
+model UserDevice {
+  id            String   @id @default(cuid())
+  userId        String
+  fingerprint   String
+  deviceName    String?
+  brand         String?
+  manufacturer  String?
+  modelName     String?
+  deviceType    String?
+  osName        String?
+  osVersion     String?
+  imei          String?
+  hardwareId    String?
+  isEmulator    Boolean  @default(false)
+  appVersion    String?
+  lastIpAddress String?
+  lastSeenAt    DateTime @default(now())
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lockedByUsers User[]   @relation("LockedDevice")
+
+  @@unique([userId, fingerprint])
+  @@index([userId, lastSeenAt])
+}
+
+/// Distinct devices a user has signed in from in a calendar month (UTC).
+model UserMonthlyDevice {
+  id             String   @id @default(cuid())
+  userId         String
+  deviceGroupKey String
+  yearMonth      String
+  firstLoginAt   DateTime @default(now())
+  lastLoginAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceGroupKey, yearMonth])
+  @@index([userId, yearMonth])
+}
+
+/// Distinct accounts that have signed in from a physical device / browser in a calendar month (UTC).
+model DeviceMonthlyUser {
+  id             String   @id @default(cuid())
+  deviceGroupKey String
+  userId         String
+  yearMonth      String
+  firstLoginAt   DateTime @default(now())
+  lastLoginAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceGroupKey, userId, yearMonth])
+  @@index([deviceGroupKey, yearMonth])
 }
 
 enum PushChannel {
@@ -82,6 +150,25 @@ model ContractInvitation {
   @@index([recipientEmail])
   @@index([sentAt])
   @@index([sentByUserId])
+}
+
+/// Local mapping of Deskline tickets owned by this user.
+model SupportTicket {
+  id           String   @id @default(cuid())
+  userId       String
+  ticketingId  String   @unique
+  ticketingRef String
+  topic        String
+  summary      String
+  message      String   @db.Text
+  kind         String   @default("question")
+  status       String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model Session {
@@ -149,6 +236,45 @@ model FieldKyc {
   bookings     FieldBooking[]
   reservations Booking[]
   bookingUnits BookingUnit[]
+  managers     FieldManager[]
+  managerInvites FieldManagerInvite[]
+}
+
+/// Extra people invited to operate a field. The owner remains FieldKyc.userId.
+model FieldManager {
+  id              String   @id @default(cuid())
+  fieldId         String
+  userId          String
+  invitedByUserId String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  field     FieldKyc @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  user      User     @relation("FieldManagerUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy User     @relation("FieldManagerInviter", fields: [invitedByUserId], references: [id])
+
+  @@unique([fieldId, userId])
+  @@index([userId])
+}
+
+/// Email invite to become a FieldManager. Token is hashed; raw token is only emailed.
+model FieldManagerInvite {
+  id              String    @id @default(cuid())
+  fieldId         String
+  email           String
+  tokenHash       String    @unique
+  invitedByUserId String
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  field     FieldKyc @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  invitedBy User     @relation("FieldManagerInviteSender", fields: [invitedByUserId], references: [id])
+
+  @@index([fieldId, email])
+  @@index([email])
 }
 
 model FieldKycImage {

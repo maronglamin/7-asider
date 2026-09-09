@@ -9,7 +9,10 @@ import {
   normalizeEmail,
   pickActiveUserForOtp,
 } from '../utils/emailAuthLookup';
-import { toAuthUser } from '../utils/authUser';
+import { AUTH_SESSION_SELECT, toAuthUserSession } from '../utils/authUser';
+import { formatDeviceForOtpEmail } from '../device/format';
+import { assertExistingUserDeviceAllowed, completeDeviceLogin, sendDeviceLoginError } from '../device/login';
+import { parseDeviceInfo } from '../device/service';
 
 const router = Router();
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -32,15 +35,38 @@ router.post('/send-otp', sendOtpRateLimiter, async (req: Request, res: Response)
       return res.status(403).json({ error: 'Account is disabled' });
     }
 
+    if (existing) {
+      const full = await prisma.user.findUnique({ where: { id: existing.id } });
+      if (full) {
+        await assertExistingUserDeviceAllowed(req, full);
+      }
+    }
+
     const code = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_TTL_MS);
+    const deviceInput = parseDeviceInfo((req.body as { device?: unknown })?.device);
+    const deviceSummary = deviceInput ? formatDeviceForOtpEmail(deviceInput) : undefined;
+    const fullExisting = existing
+      ? await prisma.user.findUnique({
+          where: { id: existing.id },
+          select: { deviceLockEnabled: true },
+        })
+      : null;
 
     await prisma.otpCode.deleteMany({ where: { email } });
     await prisma.otpCode.create({ data: { email, code, expiresAt } });
-    await sendOtpEmail(email, code);
+    await sendOtpEmail(email, code, {
+      device: deviceSummary,
+      accountDeviceLocked: fullExisting?.deviceLockEnabled ?? false,
+    });
 
-    return res.json({ ok: true, message: 'Verification code sent' });
+    return res.json({
+      ok: true,
+      message: 'Verification code sent',
+      accountDeviceLocked: fullExisting?.deviceLockEnabled ?? false,
+    });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     return res.status(500).json({ error: e.message || 'Failed to send verification email' });
   }
 });
@@ -102,18 +128,14 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Failed to create account' });
     }
 
+    const full = await prisma.user.findUnique({ where: { id: existing.id } });
+    if (!full) return res.status(500).json({ error: 'Failed to create session' });
+
+    const device = await completeDeviceLogin(req, full);
+
     const user = await prisma.user.findUnique({
       where: { id: existing.id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        username: true,
-        supadmin: true,
-        provider: true,
-        passwordHash: true,
-        appLockType: true,
-      },
+      select: AUTH_SESSION_SELECT,
     });
     if (!user) return res.status(500).json({ error: 'Failed to create session' });
 
@@ -125,8 +147,13 @@ router.post('/verify-otp', async (req: Request, res: Response) => {
     });
     await prisma.session.create({ data: { userId: user.id, token } });
 
-    return res.json({ token, user: toAuthUser(user) });
+    return res.json({
+      token,
+      user: await toAuthUserSession(user, device.id),
+      device,
+    });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     return res.status(500).json({ error: e.message || 'Verification failed' });
   }
 });

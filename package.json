@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "expo-application": "~6.1.5",
+    "expo-sharing": "~13.1.5"
+  }
+}

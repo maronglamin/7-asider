@@ -12,6 +12,8 @@ import {
   normalizeEmail,
   pickEmailPasswordUser,
 } from '../utils/emailAuthLookup';
+import { AUTH_SESSION_SELECT, toAuthUserSession } from '../utils/authUser';
+import { completeDeviceLogin, sendDeviceLoginError } from '../device/login';
 
 const router = Router();
 const GENERIC_FORGOT_PASSWORD_MESSAGE = 'If an eligible account exists for that email, a password reset message has been sent.';
@@ -65,11 +67,26 @@ router.post('/login-email', async (req: Request, res: Response) => {
     }
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const full = await prisma.user.findUnique({ where: { id: user.id } });
+    if (!full) return res.status(401).json({ error: 'Invalid credentials' });
+    const device = await completeDeviceLogin(req, full);
+
+    const sessionUser = await prisma.user.findUnique({
+      where: { id: user.id },
+      select: AUTH_SESSION_SELECT,
+    });
+    if (!sessionUser) return res.status(500).json({ error: 'Login failed' });
+
     const token = signJwt({ userId: user.id, email: user.email, name: user.name ?? undefined, provider: 'email' });
-    // Persist session
     await prisma.session.create({ data: { userId: user.id, token } });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, supadmin: user.supadmin, provider: user.provider } });
+    res.json({
+      token,
+      user: await toAuthUserSession(sessionUser, device.id),
+      device,
+    });
   } catch (e: any) {
+    if (sendDeviceLoginError(res, e)) return;
     res.status(500).json({ error: e.message || 'Login failed' });
   }
 });

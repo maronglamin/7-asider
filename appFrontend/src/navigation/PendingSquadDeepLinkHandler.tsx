@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
 import { consumePendingChallenge, consumePendingSquadJoin } from '../lib/pending-squad';
+import { consumePendingFieldManagerInvite } from '../lib/pending-field-manager';
 import { navigationRef } from './navigationRef';
 import { useAuth } from '../context/AuthContext';
 
 /**
- * After OTP login, finish a join/challenge that arrived from a shared link.
+ * After OTP login, finish a join/challenge/manager invite that arrived from a shared link.
  */
 export function PendingSquadDeepLinkHandler() {
   const { user, token } = useAuth();
@@ -25,9 +26,19 @@ export function PendingSquadDeepLinkHandler() {
         }
       }
       const challengeToken = await consumePendingChallenge();
-      if (cancelled || !challengeToken) return;
+      if (cancelled) return;
+      if (challengeToken) {
+        try {
+          (navigationRef as any).navigate('ChallengeAccept', { token: challengeToken });
+          return;
+        } catch {
+          /* ignore */
+        }
+      }
+      const managerToken = await consumePendingFieldManagerInvite();
+      if (cancelled || !managerToken) return;
       try {
-        (navigationRef as any).navigate('ChallengeAccept', { token: challengeToken });
+        (navigationRef as any).navigate('ManageFieldInvite', { token: managerToken });
       } catch {
         /* ignore */
       }

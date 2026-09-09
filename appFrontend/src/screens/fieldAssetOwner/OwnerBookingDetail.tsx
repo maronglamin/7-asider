@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '@react-navigation/native';
 import { ChevronLeft, ScanLine, X } from 'lucide-react-native';
-import { apiGetAuth, apiPatchAuth, apiPostAuth, resolveMediaUrl } from '../../api/client';
+import { apiGetAuth, apiPostAuth, resolveMediaUrl } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { CheckInScannerModal } from '../../components/CheckInScannerModal';
 import { isBookingPaid } from '../../utils/easypayBookerMessages';
@@ -19,13 +19,8 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   const field = booking?.field || {};
   const imgRel = field?.images?.[0]?.url;
   const image = resolveMediaUrl(imgRel) || 'https://via.placeholder.com/800x400?text=Field';
-  const [payUpdating, setPayUpdating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
-  const [receipts, setReceipts] = useState<any[]>([]);
-  const [loadingReceipts, setLoadingReceipts] = useState(false);
-  const [previewVisible, setPreviewVisible] = useState(false);
-  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
   const start = useMemo(
     () => (booking?.startAt ? new Date(booking.startAt) : new Date(NaN)),
@@ -143,19 +138,6 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
     );
   };
 
-  const onMarkPaid = async () => {
-    try {
-      setPayUpdating(true);
-      await apiPatchAuth(`/bookings/${booking.id}/payment`, {}, token as string);
-      Alert.alert('Updated', 'Booking marked as PAID.');
-      setBooking((prev: any) => (prev ? { ...prev, paymentStatus: 'PAID' } : prev));
-    } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Failed to mark as paid');
-    } finally {
-      setPayUpdating(false);
-    }
-  };
-
   const refreshBooking = useCallback(async () => {
     if (!token || !booking?.id) return;
     try {
@@ -182,21 +164,6 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
   useEffect(() => {
     if (paramBooking) setBooking(paramBooking);
   }, [paramBooking?.id]);
-
-  useEffect(() => {
-    if (!booking?.id || !token) return;
-    (async () => {
-      try {
-        setLoadingReceipts(true);
-        const res = await apiGetAuth<{ items: any[] }>(`/bookings/${booking.id}/receipts`, token as string);
-        setReceipts(res.items || []);
-      } catch (_) {
-        setReceipts([]);
-      } finally {
-        setLoadingReceipts(false);
-      }
-    })();
-  }, [booking?.id, token]);
 
   if (loadingDetail || !booking?.id) {
     return (
@@ -312,34 +279,10 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
               </View>
             ) : (
               <Text style={styles.meta}>
-                Awaiting payment. Customers paying with directPay do not need to upload a receipt; this screen updates when
-                payment is confirmed.
+                Awaiting payment. This screen updates when the customer pays with directPay.
               </Text>
             )}
           </View>
-          <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Payment receipts (optional)</Text>
-          {loadingReceipts ? (
-            <Text style={styles.meta}>Loading...</Text>
-          ) : receipts.length === 0 ? (
-            <Text style={styles.meta}>No receipts uploaded.</Text>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-              <View style={{ flexDirection: 'row', gap: 12 }}>
-                {receipts.map((r) => (
-                  <TouchableOpacity
-                    key={r.id}
-                    activeOpacity={0.9}
-                    onPress={() => { setPreviewUri(resolveMediaUrl(r.imageUrl)); setPreviewVisible(true); }}
-                  >
-                    <Image
-                      source={{ uri: resolveMediaUrl(r.imageUrl) || undefined }}
-                      style={{ width: 140, height: 140, borderRadius: 10, backgroundColor: '#f3f4f6' }}
-                    />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </ScrollView>
-          )}
         </View>
         
       </ScrollView>
@@ -356,33 +299,6 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
           </TouchableOpacity>
         ) : null}
         <View style={styles.buttonsRow}>
-          <TouchableOpacity
-            disabled={
-              payUpdating ||
-              paid ||
-              inactive ||
-              !booking?.hasReceipt
-            }
-            style={[
-              styles.secondary,
-              (payUpdating || paid || inactive || !booking?.hasReceipt) && { opacity: 0.6 },
-            ]}
-            onPress={onMarkPaid}
-          >
-            <Text style={styles.secondaryText}>
-              {inactive
-                ? pendingRefund
-                  ? 'Pending refund'
-                  : 'Cancelled'
-                : paid
-                  ? 'Paid'
-                  : !booking?.hasReceipt
-                    ? 'Receipt needed to mark paid'
-                    : payUpdating
-                      ? 'Marking...'
-                      : 'Mark as Paid'}
-            </Text>
-          </TouchableOpacity>
           <TouchableOpacity
             disabled={!canScanCheckIn}
             style={[styles.primary, styles.scanBtn, !canScanCheckIn && { opacity: 0.6 }]}
@@ -413,21 +329,6 @@ export default function OwnerBookingDetail({ navigation, route }: any) {
           }}
         />
       ) : null}
-
-      {/* Receipt Preview Modal */}
-      <Modal visible={previewVisible} transparent animationType="fade" onRequestClose={() => setPreviewVisible(false)}>
-        <View style={styles.previewOverlay}>
-          <TouchableOpacity style={styles.previewBackdrop} activeOpacity={1} onPress={() => setPreviewVisible(false)} />
-          <View style={styles.previewContent}>
-            {!!previewUri && (
-              <Image source={{ uri: previewUri }} style={styles.previewImage} resizeMode="contain" />
-            )}
-            <TouchableOpacity style={styles.previewClose} onPress={() => setPreviewVisible(false)}>
-              <Text style={styles.previewCloseText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -467,8 +368,6 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 14, flex: 1 },
   scanBtn: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   primaryText: { color: '#ffffff', fontWeight: '700', fontSize: 16 },
-  secondary: { backgroundColor: '#ffffff', borderWidth: 2, borderColor: '#16a34a', borderRadius: 8, alignItems: 'center', paddingVertical: 14, flex: 1 },
-  secondaryText: { color: '#16a34a', fontWeight: '700', fontSize: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
   dayLabel: { fontSize: 13, color: '#6b7280', marginBottom: 6 },
   slotsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -478,12 +377,6 @@ const styles = StyleSheet.create({
   badgeSoft: { backgroundColor: '#dcfce7', color: '#166534' },
   statusOnImage: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb' },
   statusOnImageText: { fontSize: 12, fontWeight: '800', color: '#111827' },
-  previewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  previewBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-  previewContent: { width: '90%', alignItems: 'center' },
-  previewImage: { width: '100%', height: 420, borderRadius: 12, backgroundColor: '#111827' },
-  previewClose: { marginTop: 12, backgroundColor: '#ffffff', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8 },
-  previewCloseText: { color: '#111827', fontWeight: '800' },
 });
 
 

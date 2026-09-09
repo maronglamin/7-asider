@@ -23,6 +23,7 @@ export function getNavigationLinking() {
         JoinSquad: 'join/:code',
         SquadDetail: 'squad/:squadId',
         ChallengeAccept: 'challenge/:token',
+        ManageFieldInvite: 'manage-invite/:token',
       },
     },
   };

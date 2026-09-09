@@ -58,3 +58,9 @@ export function getAppleClientIds(): string[] {
   const raw = process.env.APPLE_CLIENT_IDS || '';
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
+
+export function getAppPublicUrl(): string {
+  const fromEnv = (process.env.APP_PUBLIC_URL || '').trim().replace(/\/+$/, '');
+  if (fromEnv) return fromEnv;
+  return 'https://7a-side.phantommetrics.gm';
+}
