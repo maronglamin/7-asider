@@ -17,6 +17,11 @@ model User {
   provider       String? // 'google' | 'apple' | 'facebook' | 'email'
   providerId     String? // external provider user id
   supadmin       Boolean          @default(false)
+  adminUser      Boolean          @default(false)
+  adminUserType  AdminUserType?
+  adminUserStatus AdminUserStatus @default(ACTIVE)
+  adminTotpSecret String?
+  adminTotpEnabledAt DateTime?
   status         UserStatus       @default(ACTIVE)
   /// Easypay merchant tenant (field owner / organiser), from internal-partner provision
   easypayBusinessId String?
@@ -47,8 +52,11 @@ model User {
   invitedFieldManagers FieldManager[] @relation("FieldManagerInviter")
   sentFieldManagerInvites FieldManagerInvite[] @relation("FieldManagerInviteSender")
   supportTickets SupportTicket[]
+  adminRoles     AdminUserRole[]
+  adminGroups    AdminUserGroupMember[]
 
   @@index([email])
+  @@index([adminUser, adminUserType])
 }
 
 /// Devices used to sign in. Fingerprint is per app install (native) or browser profile (web/PWA).
@@ -184,6 +192,89 @@ enum UserStatus {
   ACTIVE
   BLOCKED
   TERMINATED
+}
+
+enum AdminUserType {
+  OWNER
+  OPERATOR
+}
+
+enum AdminUserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model AdminRole {
+  id          String               @id @default(cuid())
+  name        String               @unique
+  description String?
+  users       AdminUserRole[]
+  groups      AdminUserGroup[]
+  permissions AdminRolePermission[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@map("admin_roles")
+}
+
+model AdminPermission {
+  id          String               @id @default(cuid())
+  moduleKey   String
+  actionKey   String
+  name        String
+  description String?
+  roles       AdminRolePermission[]
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  @@unique([moduleKey, actionKey])
+  @@map("admin_permissions")
+}
+
+model AdminUserRole {
+  userId     String
+  roleId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       AdminRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  assignedAt DateTime  @default(now())
+
+  @@id([userId, roleId])
+  @@map("admin_user_roles")
+}
+
+model AdminRolePermission {
+  roleId       String
+  permissionId String
+  role         AdminRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   AdminPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  assignedAt   DateTime        @default(now())
+
+  @@id([roleId, permissionId])
+  @@map("admin_role_permissions")
+}
+
+model AdminUserGroup {
+  id          String                 @id @default(cuid())
+  name        String                 @unique
+  description String?
+  roleId      String
+  role        AdminRole              @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  members     AdminUserGroupMember[]
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  @@map("admin_user_groups")
+}
+
+model AdminUserGroupMember {
+  userId     String
+  groupId    String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group      AdminUserGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  assignedAt DateTime       @default(now())
+
+  @@id([userId, groupId])
+  @@map("admin_user_group_members")
 }
 
 enum AppLockType {

@@ -57,6 +57,7 @@ module.exports = ({ config }) => ({
           { scheme: 'https', host: appPublicHost, pathPrefix: '/join' },
           { scheme: 'https', host: appPublicHost, pathPrefix: '/challenge' },
           { scheme: 'https', host: appPublicHost, pathPrefix: '/squad' },
+          { scheme: 'https', host: appPublicHost, pathPrefix: '/field' },
         ],
         category: ['BROWSABLE', 'DEFAULT'],
       },

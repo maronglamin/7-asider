@@ -20,6 +20,7 @@ import { SquadDetailScreen } from './src/screens/squads/SquadDetailScreen';
 import { ChallengeAcceptScreen } from './src/screens/squads/ChallengeAcceptScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { BookingScreen } from './src/screens/BookingScreen';
+import FieldAdvertScreen from './src/screens/FieldAdvertScreen';
 import { RegisterFieldScreen, FieldDetailScreen } from './src/screens/fieldKyc';
 import ManageFieldInviteScreen from './src/screens/fieldKyc/ManageFieldInviteScreen';
 import FindFieldScreen from './src/screens/FindFieldScreen';
@@ -268,6 +269,7 @@ function RootNavigator() {
         <Stack.Screen name="VerifyPin" component={VerifyPinScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="Booking" component={BookingScreen} />
+        <Stack.Screen name="FieldAdvert" component={FieldAdvertScreen} />
         <Stack.Screen name="MyFields" component={MyFieldsScreen} />
         <Stack.Screen name="RegisterField" component={RegisterFieldScreen} />
         <Stack.Screen name="FieldDetail" component={FieldDetailScreen} />

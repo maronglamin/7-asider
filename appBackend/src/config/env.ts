@@ -29,8 +29,12 @@ export function getAppLockPepper(): string {
 const LOCAL_ORIGINS = [
   'http://localhost:8081',
   'http://localhost:19006',
+  'http://localhost:5173',
+  'http://localhost:5174',
   'http://127.0.0.1:8081',
   'http://127.0.0.1:19006',
+  'http://127.0.0.1:5173',
+  'http://127.0.0.1:5174',
 ];
 
 export function isLocalDevOrigin(origin: string): boolean {
@@ -44,7 +48,12 @@ export function getAllowedOrigins(): string[] {
     return isProduction() ? fromEnv : [...new Set([...fromEnv, ...LOCAL_ORIGINS])];
   }
   if (isProduction()) {
-    return ['https://7a-side.phantommetrics.gm', 'https://seven-aside.phantommetrics.gm'];
+    return [
+      'https://7a-side.phantommetrics.gm',
+      'https://seven-aside.phantommetrics.gm',
+      'https://admin.7a-side.phantommetrics.gm',
+      'https://admin.seven-aside.phantommetrics.gm',
+    ];
   }
   return LOCAL_ORIGINS;
 }

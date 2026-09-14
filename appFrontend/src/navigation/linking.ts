@@ -20,6 +20,8 @@ export function getNavigationLinking() {
       screens: {
         OwnerBookingDetail: 'owner-booking/:bookingId',
         CustomerBookedDetails: 'my-booking/:bookingId',
+        Booking: 'book/:fieldId',
+        FieldAdvert: 'field/:fieldId',
         JoinSquad: 'join/:code',
         SquadDetail: 'squad/:squadId',
         ChallengeAccept: 'challenge/:token',
