@@ -62,3 +62,4 @@ appBackend/depl
 
 # Deployment
 appBackend/deploy/
+deploy/backups/

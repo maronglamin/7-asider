@@ -36,10 +36,10 @@ sudo rsync -a --delete \
   --exclude dist \
   /path/to/appAdmin/ /var/www/7-aside/appAdmin/
 
-cd /var/www/7-aside/appAdmin
+cd /var/www/7-asider/appAdmin
 npm ci
 npm run build
-sudo chown -R www-data:www-data /var/www/7-aside/appAdmin
+sudo chown -R www-data:www-data /var/www/7-asider/appAdmin
 ```
 
 Confirm `dist/index.html` exists.
@@ -47,7 +47,7 @@ Confirm `dist/index.html` exists.
 ## 3. Enable the Nginx site
 
 ```bash
-sudo cp /var/www/7-aside/appAdmin/deploy/nginx/seven-aside-admin.conf \
+sudo cp /var/www/7-asider/appAdmin/deploy/nginx/seven-aside-admin.conf \
   /etc/nginx/sites-available/seven-aside-admin.conf
 sudo ln -sf /etc/nginx/sites-available/seven-aside-admin.conf /etc/nginx/sites-enabled/
 sudo nginx -t
